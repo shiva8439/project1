@@ -172,9 +172,10 @@ app.use((err, req,res,next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 SwiftRide server running on port ${PORT}`);
   console.log(`API Base URL: http://localhost:${PORT}`);
 });
 
 module.exports = app;
+
