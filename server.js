@@ -10,19 +10,18 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CORS setup
-const corsOptions = {
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // allow Postman / Flutter web
-    if (origin.startsWith('http://localhost')) return callback(null, true);
-    if (origin === 'https://your-frontend-domain.com') return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-};
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+const cors = require('cors');
+
+app.use(cors({
+  origin: true,           // allow any origin
+  credentials: true,      // allow cookies/auth headers
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+
+// Ensure preflight requests work
+app.options('*', cors());
+
 
 // JSON middleware
 app.use(express.json());
@@ -135,3 +134,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
