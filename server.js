@@ -15,14 +15,12 @@ app.use(express.json());
 // MongoDB connection
 
 
-console.log("Mongo URI:", process.env.MONGODB_URI);
+const MONGO_URI = process.env.MONGODB_URI;
 
-
-if (mongodb+srv://Shiva:neemkapatta1234@cluster0.9dbq9a1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0) {
-  console.error("❌ MONGODB_URI not set. Please add it in Render Environment Variables.");
-  process.exit(1);
+// Agar undefined ho to error throw karo
+if (!MONGO_URI) {
+  throw new Error("MONGODB_URI is not set in environment variables!");
 }
-
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -387,6 +385,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
