@@ -10,7 +10,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CORS setup
-const cors = require('cors');
 
 app.use(cors({
   origin: true,           // allow any origin
@@ -134,4 +133,5 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
