@@ -11,20 +11,20 @@ const PORT = process.env.PORT || 3000;
 
 // CORS setup
 
-app.use(cors({
-  origin: true,           // allow any origin
-  credentials: true,      // allow cookies/auth headers
+const corsOptions = {
+  origin: 'https://your-live-frontend-domain.com', // Replace with actual live frontend URL
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization']
-}));
+  allowedHeaders: ['Content-Type','Authorization'],
+  credentials: true
+};
 
-// Ensure preflight requests work
-app.options('*', cors());
-
+// Apply CORS middleware
+app.use(cors(corsOptions));
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // JSON middleware
 app.use(express.json());
-
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -133,5 +133,6 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
