@@ -9,25 +9,31 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // -------------------- CORS Setup --------------------
-const corsOptions = {
-  origin: (origin, callback) => {
-    // allow requests from localhost (dev) and your deployed frontend
-    if (!origin || origin.startsWith('http://localhost') || origin === 'https://your-frontend-domain.com') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-};
+const cors = require('cors');
 
-// Apply CORS middleware globally
-app.use(cors(corsOptions));
+const allowedOrigins = [
+  "http://localhost:64587",  // old frontend port
+  "http://localhost:57388",  // old frontend port
+  "http://localhost:59482",  // current Flutter web port (update if changed)
+  "https://your-frontend-domain.com" // deployed frontend
+];
+
+app.use(cors({
+  origin: function(origin, callback){
+    if(!origin) return callback(null, true); // allow non-browser requests (like Postman)
+    if(allowedOrigins.indexOf(origin) === -1){
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+    return callback(null, true);
+  },
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  credentials: true
+}));
 
 // Handle preflight requests
-app.options('*', cors(corsOptions));
+app.options('*', cors());
+
 
 // Parse JSON bodies
 app.use(express.json());
@@ -169,3 +175,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
