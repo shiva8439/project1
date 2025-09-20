@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -66,112 +65,31 @@ app.get('/', (req, res) => {
   res.json({ message: 'SwiftRide API is running!' });
 });
 
-// Signup
-app.post('/signup', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ status:'error', message:'Email and password are required' });
+// Signup & Login
+app.post('/signup', async (req, res) => { /* tera signup code */ });
+app.post('/login', async (req, res) => { /* tera login code */ });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ status:'error', message:'User already exists with this email' });
+// Vehicle routes
+app.get('/vehicles', async (req,res)=>{ /* tera get vehicle code */ });
+app.post('/vehicles', authenticateToken, async (req,res)=>{ /* tera add vehicle code */ });
+app.put('/vehicles/:id/location', authenticateToken, async (req,res)=>{ /* tera update location code */ });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ email, password: hashedPassword });
-    await newUser.save();
+// Profile
+app.get('/profile', authenticateToken, async (req,res)=>{ /* tera get profile code */ });
 
-    res.status(201).json({ status:'success', message:'User created successfully', user: { id:newUser._id, email:newUser.email, role:newUser.role } });
-  } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
+// ---------------- Bus Routes ----------------
+// 1️⃣ Import bus.js
+const busRoutes = require("./routes/bus");
 
-// Login
-app.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ status:'error', message:'Email and password are required' });
+// 2️⃣ Use bus routes
+app.use("/bus", busRoutes);
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ status:'error', message:'Invalid email or password' });
-
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) return res.status(401).json({ status:'error', message:'Invalid email or password' });
-
-    const token = jwt.sign({ userId: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ status:'success', message:'Login successful', token, user: { id:user._id, email:user.email, role:user.role } });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
-
-// Get vehicles
-app.get('/vehicles', async (req, res) => {
-  try {
-    const vehicles = await Vehicle.find({ isAvailable:true }).populate('driver', 'email');
-    res.json(vehicles.map(v => ({ name:v.name, type:v.type, number:v.number, driver:v.driver ? v.driver.email : 'Unknown', location:v.currentLocation })));
-  } catch (error) {
-    console.error('Get vehicles error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
-
-// Add vehicle (drivers only)
-app.post('/vehicles', authenticateToken, async (req, res) => {
-  try {
-    const { name, type, number, currentLocation } = req.body;
-    if (req.user.role !== 'driver') return res.status(403).json({ status:'error', message:'Only drivers can add vehicles' });
-    if (!name || !type || !number) return res.status(400).json({ status:'error', message:'Name, type, and number are required' });
-
-    const existingVehicle = await Vehicle.findOne({ number });
-    if (existingVehicle) return res.status(400).json({ status:'error', message:'Vehicle with this number already exists' });
-
-    const newVehicle = new Vehicle({ name, type, number, driver:req.user.userId, currentLocation });
-    await newVehicle.save();
-    res.status(201).json({ status:'success', message:'Vehicle added successfully', vehicle:{ id:newVehicle._id, name:newVehicle.name, type:newVehicle.type, number:newVehicle.number } });
-  } catch (error) {
-    console.error('Add vehicle error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
-
-// Update vehicle location
-app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
-  try {
-    const { lat, lng } = req.body;
-    const vehicle = await Vehicle.findOneAndUpdate({ _id:req.params.id, driver:req.user.userId }, { currentLocation:{ lat, lng } }, { new:true });
-    if (!vehicle) return res.status(404).json({ status:'error', message:'Vehicle not found or you are not authorized' });
-
-    res.json({ status:'success', message:'Location updated', vehicle:{ id:vehicle._id, name:vehicle.name, location:vehicle.currentLocation } });
-  } catch (error) {
-    console.error('Update location error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
-
-// Get user profile
-app.get('/profile', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).select('-password');
-    if (!user) return res.status(404).json({ status:'error', message:'User not found' });
-    res.json({ status:'success', user:{ id:user._id, email:user.email, role:user.role, createdAt:user.createdAt } });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ status:'error', message:'Internal server error' });
-  }
-});
-
-// 404 handler
+// 404 & Error
 app.use('*', (req,res) => res.status(404).json({ status:'error', message:'Route not found' }));
-
-// Error middleware
 app.use((err, req,res,next) => {
   console.error(err.stack);
   res.status(500).json({ status:'error', message:'Something went wrong!' });
 });
-const busRoutes = require("./routes/bus");
-app.use("/bus", busRoutes); 
 
 // Start server
 app.listen(PORT, "0.0.0.0", () => {
@@ -179,6 +97,4 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`API Base URL: http://localhost:${PORT}`);
 });
 
-
 module.exports = app;
-
