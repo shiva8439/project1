@@ -18,9 +18,8 @@ app.use(express.json());
 const MONGO_URI = process.env.MONGODB_URI;
 
 // Agar undefined ho to error throw karo
-if (!MONGO_URI) {
-  throw new Error("MONGODB_URI is not set in environment variables!");
-}
+if (!MONGO_URI) 
+ 
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -385,6 +384,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
