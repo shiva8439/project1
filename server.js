@@ -170,6 +170,8 @@ app.use((err, req,res,next) => {
   console.error(err.stack);
   res.status(500).json({ status:'error', message:'Something went wrong!' });
 });
+const busRoutes = require("./routes/bus");
+app.use("/bus", busRoutes); 
 
 // Start server
 app.listen(PORT, "0.0.0.0", () => {
@@ -177,8 +179,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`API Base URL: http://localhost:${PORT}`);
 });
 
-module.exports = app;
-const busRoutes = require("./routes/bus");
-app.use("/bus", busRoutes);
 
+module.exports = app;
 
