@@ -19,10 +19,11 @@ const corsOptions = {
 };
 
 // Middleware
-// Middleware
-// Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+// Middleware
+// Middleware
+
 
 // MongoDB connection
 
@@ -395,6 +396,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
