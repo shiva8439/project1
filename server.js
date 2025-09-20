@@ -18,18 +18,18 @@ app.use(express.json());
 const MONGO_URI = process.env.MONGODB_URI;
 
 if (!MONGO_URI) {
-  console.error("❌ MONGODB_URI not set. Server cannot start.");
+  console.error("❌ MONGODB_URI not set. Please add it in Render Environment Variables.");
   process.exit(1);
 }
 
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
 })
 .then(() => console.log("✅ MongoDB connected successfully"))
 .catch((err) => {
   console.error("❌ MongoDB connection error:", err.message);
-  process.exit(1); // Stop server if it cannot connect
+  process.exit(1);
 });
 
 
@@ -386,6 +386,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
