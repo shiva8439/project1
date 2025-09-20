@@ -15,12 +15,14 @@ app.use(express.json());
 // MongoDB connection
 
 
-if (!process.env.MONGODB_URI) {
+const MONGO_URI = process.env.MONGODB_URI;
+
+if (!MONGO_URI) {
   console.error("❌ MONGODB_URI not set. Server cannot start.");
   process.exit(1);
 }
 
-mongoose.connect(process.env.MONGODB_URI, {
+mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
@@ -29,7 +31,6 @@ mongoose.connect(process.env.MONGODB_URI, {
   console.error("❌ MongoDB connection error:", err.message);
   process.exit(1); // Stop server if it cannot connect
 });
-
 
 
 // User Schema
@@ -385,5 +386,6 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
