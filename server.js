@@ -15,21 +15,21 @@ app.use(express.json());
 // MongoDB connection
 
 
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/swiftride';
+if (!process.env.MONGODB_URI) {
+  console.error("❌ MONGODB_URI not set. Server cannot start.");
+  process.exit(1);
+}
 
-// Connect to MongoDB
-mongoose.connect(MONGO_URI, {
+mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => {
-  console.log('✅ MongoDB connected successfully');
-})
+.then(() => console.log("✅ MongoDB connected successfully"))
 .catch((err) => {
-  console.error('❌ MongoDB connection error:', err.message);
-  console.log('Server cannot continue without MongoDB');
-  process.exit(1); // Exit if connection fails
+  console.error("❌ MongoDB connection error:", err.message);
+  process.exit(1); // Stop server if it cannot connect
 });
+
 
 
 // User Schema
@@ -385,4 +385,5 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
