@@ -178,4 +178,7 @@ app.listen(PORT, "0.0.0.0", () => {
 });
 
 module.exports = app;
+const busRoutes = require("./routes/bus");
+app.use("/bus", busRoutes);
+
 
