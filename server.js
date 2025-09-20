@@ -7,6 +7,16 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const corsOptions = {
+  origin: [
+    "http://localhost:64587",   // your current frontend port
+    "http://localhost:57388",   // the old port (keep if you still use it)
+    "https://your-frontend-domain.com" // when you deploy frontend
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
 
 // Middleware
 // Middleware
@@ -392,6 +402,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
