@@ -15,7 +15,8 @@ app.use(express.json());
 // MongoDB connection
 
 
-const MONGO_URI = process.env.MONGODB_URI;
+console.log("Mongo URI:", process.env.MONGODB_URI);
+
 
 if (!MONGO_URI) {
   console.error("❌ MONGODB_URI not set. Please add it in Render Environment Variables.");
@@ -386,6 +387,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
