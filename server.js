@@ -13,8 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB connection
-const mongoose = require('mongoose');
-require('dotenv').config();
+
 
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/swiftride';
 
@@ -386,3 +385,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
