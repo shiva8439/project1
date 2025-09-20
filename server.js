@@ -6,11 +6,26 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const corsOptions = {
+  origin: function(origin, callback) {
+    console.log('Origin:', origin); // debug which origin is calling
+    if (!origin) return callback(null, true); // allow non-browser requests like Postman
+    if (origin.startsWith('http://localhost')) return callback(null, true); // allow any localhost port
+    if (origin === 'https://your-frontend-domain.com') return callback(null, true); // allow deployed frontend
+    callback(new Error('Not allowed by CORS'));
+  },
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  credentials: true
+};
 
-// Middleware
-app.use(cors());
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
+
 
 // MongoDB connection
 
@@ -382,6 +397,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
