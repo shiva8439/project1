@@ -18,7 +18,7 @@ app.use(express.json());
 console.log("Mongo URI:", process.env.MONGODB_URI);
 
 
-if (!MONGO_URI) {
+if (mongodb+srv://Shiva:neemkapatta1234@cluster0.9dbq9a1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0) {
   console.error("❌ MONGODB_URI not set. Please add it in Render Environment Variables.");
   process.exit(1);
 }
@@ -387,6 +387,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
