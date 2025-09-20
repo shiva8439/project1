@@ -21,14 +21,7 @@ const corsOptions = {
 // Middleware
 // Middleware
 app.use(cors({
-  origin: [
-    "http://localhost:57388",          // your local frontend
-    "https://your-frontend-domain.com" // later, your deployed frontend
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
+ 
 app.use(express.json());
 
 // MongoDB connection
@@ -402,6 +395,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
