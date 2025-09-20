@@ -6,12 +6,14 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 const corsOptions = {
   origin: function(origin, callback) {
-    console.log('Origin:', origin); // debug which origin is calling
-    if (!origin) return callback(null, true); // allow non-browser requests like Postman
-    if (origin.startsWith('http://localhost')) return callback(null, true); // allow any localhost port
-    if (origin === 'https://your-frontend-domain.com') return callback(null, true); // allow deployed frontend
+    console.log('Origin:', origin);
+    if (!origin) return callback(null, true);
+    if (origin.startsWith('http://localhost')) return callback(null, true);
+    if (origin === 'https://your-frontend-domain.com') return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
   methods: ["GET","POST","PUT","DELETE","OPTIONS"],
@@ -20,29 +22,26 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
-// Handle preflight requests
 app.options('*', cors(corsOptions));
-
 app.use(express.json());
 
+// Example route
+app.get('/', (req, res) => {
+  res.json({ message: "SwiftRide API running!" });
+});
 
 // MongoDB connection
-
-
-
-
-
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
 .then(() => console.log("✅ MongoDB connected successfully"))
-.catch((err) => {
-  console.error("❌ MongoDB connection error:", err.message);
-  process.exit(1); // Stop server if it cannot connect
-});
+.catch(err => console.error("❌ MongoDB connection error:", err));
 
+// Start server
+app.listen(PORT, () => {
+  console.log(`SwiftRide server running on port ${PORT}`);
+});
 
 // User Schema
 const userSchema = new mongoose.Schema({
@@ -397,6 +396,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
