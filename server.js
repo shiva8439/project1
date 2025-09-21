@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 // CORS setup
 
 const corsOptions = {
-  origin: 'https://your-live-frontend-domain.com', // Replace with actual live frontend URL
+  origin: 'http://localhost:59593/', // Replace with actual live frontend URL
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
   credentials: true
@@ -133,6 +133,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
