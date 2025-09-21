@@ -30,7 +30,9 @@ const corsOptions = {
 
 
 // JSON middleware
-app.use(express.json());
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -139,6 +141,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
