@@ -5,18 +5,18 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
-
-
-
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// ✅ CORS middleware (sab origins allow – testing ke liye)
-app.use(cors());
-app.options("*", cors());
+// ✅ CORS setup
+app.use(cors({
+  origin: "*",   // sab origins allow (testing ke liye)
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 
-// ✅ Body parser middleware
 app.use(express.json());
+
+
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
@@ -126,6 +126,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
