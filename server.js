@@ -6,12 +6,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-const express = require("express");
-const cors = require("cors");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose");
-require("dotenv").config();
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -131,6 +126,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
