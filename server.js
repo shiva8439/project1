@@ -6,32 +6,22 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
+const express = require("express");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
+require("dotenv").config();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS setup
+// ✅ CORS middleware (sab origins allow – testing ke liye)
+app.use(cors());
+app.options("*", cors());
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // Postman ya direct server calls ke liye
-    if (
-      origin.includes("localhost") || // allow all localhost (any port)
-      origin === "https://your-live-frontend-domain.com" // tumhara deployed frontend
-    ) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-};
-
-
-// JSON middleware
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+// ✅ Body parser middleware
+app.use(express.json());
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
@@ -141,6 +131,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
