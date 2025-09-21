@@ -12,16 +12,22 @@ const PORT = process.env.PORT || 3000;
 // CORS setup
 
 const corsOptions = {
-  origin: 'http://localhost:59593/', // Replace with actual live frontend URL
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // Postman ya direct server calls ke liye
+    if (
+      origin.includes("localhost") || // allow all localhost (any port)
+      origin === "https://your-live-frontend-domain.com" // tumhara deployed frontend
+    ) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 };
 
-// Apply CORS middleware
-app.use(cors(corsOptions));
-// Handle preflight requests
-app.options('*', cors(corsOptions));
 
 // JSON middleware
 app.use(express.json());
@@ -133,6 +139,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
