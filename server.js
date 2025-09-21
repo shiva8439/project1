@@ -6,6 +6,8 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
 const app = express();
+const PORT = process.env.PORT || 5000;
+
 
 // ✅ CORS setup
 app.use(cors({
@@ -126,6 +128,7 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
 
 
 
