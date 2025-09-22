@@ -200,18 +200,22 @@ app.post('/login', async (req, res) => {
 });
 
 // Get vehicles route
+// Get vehicles route (for passengers)
 app.get('/vehicles', async (req, res) => {
   try {
     const vehicles = await Vehicle.find({ isAvailable: true })
-      .populate('driver', 'email')
-      .select('name type number currentLocation');
+      .populate('driver', 'email') // get driver email
+      .select('name type number driver currentLocation');
 
+    // Format response to match Flutter Vehicle model
     res.json(vehicles.map(vehicle => ({
+      _id: vehicle._id,
       name: vehicle.name,
       type: vehicle.type,
       number: vehicle.number,
-      driver: vehicle.driver ? vehicle.driver.email : 'Unknown',
-      location: vehicle.currentLocation
+      driverName: vehicle.driver ? vehicle.driver.email : 'Unknown',
+      rating: 5.0,   // default rating
+      eta: '5 min',  // default ETA
     })));
 
   } catch (error) {
@@ -222,6 +226,7 @@ app.get('/vehicles', async (req, res) => {
     });
   }
 });
+
 
 // Add vehicle route (for drivers)
 app.post('/vehicles', authenticateToken, async (req, res) => {
@@ -384,4 +389,3 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
-
