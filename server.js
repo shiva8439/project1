@@ -381,6 +381,31 @@ app.use('*', (req, res) => {
     message: 'Route not found'
   });
 });
+// Get single vehicle location (for passengers)
+app.get('/vehicles/:id/location', async (req, res) => {
+  try {
+    const vehicleId = req.params.id;
+
+    const vehicle = await Vehicle.findById(vehicleId).populate('driver', 'email');
+
+    if (!vehicle) {
+      return res.status(404).json({ status: 'error', message: 'Vehicle not found' });
+    }
+
+    res.json({
+      status: 'success',
+      vehicle: {
+        id: vehicle._id,
+        name: vehicle.name,
+        driverName: vehicle.driver ? vehicle.driver.email : 'Unknown',
+        location: vehicle.currentLocation
+      }
+    });
+  } catch (error) {
+    console.error('Fetch vehicle location error:', error);
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+});
 
 // Start server
 app.listen(PORT, () => {
