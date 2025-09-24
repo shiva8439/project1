@@ -113,7 +113,8 @@ app.post('/signup', async (req, res) => {
     // Create new user
     const newUser = new User({
       email,
-      password: hashedPassword,role
+      password: hashedPassword,
+      role: userRole
     });
 
     await newUser.save();
