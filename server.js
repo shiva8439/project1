@@ -87,13 +87,13 @@ app.get('/', (req, res) => {
 // Signup route
 app.post('/signup', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     // Validate input
-    if (!email || !password) {
+    if (!email || !password|| !role) {
       return res.status(400).json({
         status: 'error',
-        message: 'Email and password are required'
+        message: 'Email , password and role are required'
       });
     }
 
@@ -113,7 +113,7 @@ app.post('/signup', async (req, res) => {
     // Create new user
     const newUser = new User({
       email,
-      password: hashedPassword
+      password: hashedPassword,role
     });
 
     await newUser.save();
