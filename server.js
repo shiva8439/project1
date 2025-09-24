@@ -114,7 +114,7 @@ app.post('/signup', async (req, res) => {
     const newUser = new User({
       email,
       password: hashedPassword,
-      role: userRole
+      role: role
     });
 
     await newUser.save();
@@ -415,3 +415,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
