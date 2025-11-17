@@ -6,21 +6,19 @@ const mongoose = require('mongoose');
 
 require('dotenv').config();
 
-const app = express();   // ✔️ FIRST create app
+const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Register Bus Routes (AFTER app initialized)
-const busRoutes = require("./routes/bus");
-app.use("/bus", busRoutes);   // ✔️ NOW this is correct
 
 // Middleware
 app.use(cors({
-  origin: "*",
+  origin: "*", // testing ke liye sab allow
   methods: ["GET","POST","PUT","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization"]
 }));
 
+// Preflight requests ke liye
 app.options('*', cors());
+
 app.use(express.json());
 
 // MongoDB connection
@@ -41,6 +39,7 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['driver', 'passenger'], default: 'passenger' },
   createdAt: { type: Date, default: Date.now }
 });
+
 const User = mongoose.model('User', userSchema);
 
 // Vehicle Schema
@@ -55,12 +54,13 @@ const vehicleSchema = new mongoose.Schema({
     lng: { type: Number }
   }
 });
+
 const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// Middleware to verify token
+// Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -78,23 +78,27 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Routes
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ message: 'SwiftRide API is running!' });
 });
 
-// Signup
+// Signup route
 app.post('/signup', async (req, res) => {
   try {
     const { email, password, role } = req.body;
 
-    if (!email || !password || !role) {
+    // Validate input
+    if (!email || !password|| !role) {
       return res.status(400).json({
         status: 'error',
-        message: 'Email, password and role are required'
+        message: 'Email , password and role are required'
       });
     }
 
+    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
@@ -103,12 +107,15 @@ app.post('/signup', async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+    // Create new user
     const newUser = new User({
       email,
       password: hashedPassword,
-      role
+      role: role
     });
 
     await newUser.save();
@@ -132,11 +139,12 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// Login
+// Login route
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Validate input
     if (!email || !password) {
       return res.status(400).json({
         status: 'error',
@@ -144,6 +152,7 @@ app.post('/login', async (req, res) => {
       });
     }
 
+    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({
@@ -152,16 +161,22 @@ app.post('/login', async (req, res) => {
       });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
       return res.status(401).json({
         status: 'error',
         message: 'Invalid email or password'
       });
     }
 
+    // Generate JWT token
     const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
+      { 
+        userId: user._id, 
+        email: user.email, 
+        role: user.role 
+      },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -186,22 +201,23 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Get vehicles (ONLY ONE ROUTE NOW ✔)
+// Get vehicles route
+// Get vehicles route (for passengers)
 app.get('/vehicles', async (req, res) => {
   try {
     const vehicles = await Vehicle.find({ isAvailable: true })
-      .populate('driver', 'email')
+      .populate('driver', 'email') // get driver email
       .select('name type number driver currentLocation');
 
+    // Format response to match Flutter Vehicle model
     res.json(vehicles.map(vehicle => ({
       _id: vehicle._id,
       name: vehicle.name,
       type: vehicle.type,
       number: vehicle.number,
       driverName: vehicle.driver ? vehicle.driver.email : 'Unknown',
-      currentLocation: vehicle.currentLocation,
-      rating: 5.0,
-      eta: '5 min'
+      rating: 5.0,   // default rating
+      eta: '5 min',  // default ETA
     })));
 
   } catch (error) {
@@ -213,11 +229,13 @@ app.get('/vehicles', async (req, res) => {
   }
 });
 
-// Add vehicle
+
+// Add vehicle route (for drivers)
 app.post('/vehicles', authenticateToken, async (req, res) => {
   try {
     const { name, type, number, currentLocation } = req.body;
 
+    // Check if user is a driver
     if (req.user.role !== 'driver') {
       return res.status(403).json({
         status: 'error',
@@ -225,6 +243,7 @@ app.post('/vehicles', authenticateToken, async (req, res) => {
       });
     }
 
+    // Validate input
     if (!name || !type || !number) {
       return res.status(400).json({
         status: 'error',
@@ -232,15 +251,17 @@ app.post('/vehicles', authenticateToken, async (req, res) => {
       });
     }
 
-    const exists = await Vehicle.findOne({ number });
-    if (exists) {
+    // Check if vehicle number already exists
+    const existingVehicle = await Vehicle.findOne({ number });
+    if (existingVehicle) {
       return res.status(400).json({
         status: 'error',
         message: 'Vehicle with this number already exists'
       });
     }
 
-    const vehicle = new Vehicle({
+    // Create new vehicle
+    const newVehicle = new Vehicle({
       name,
       type,
       number,
@@ -248,16 +269,16 @@ app.post('/vehicles', authenticateToken, async (req, res) => {
       currentLocation
     });
 
-    await vehicle.save();
+    await newVehicle.save();
 
     res.status(201).json({
       status: 'success',
       message: 'Vehicle added successfully',
       vehicle: {
-        id: vehicle._id,
-        name: vehicle.name,
-        type: vehicle.type,
-        number: vehicle.number
+        id: newVehicle._id,
+        name: newVehicle.name,
+        type: newVehicle.type,
+        number: newVehicle.number
       }
     });
 
@@ -274,8 +295,9 @@ app.post('/vehicles', authenticateToken, async (req, res) => {
 app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
   try {
     const { lat, lng } = req.body;
+    const vehicleId = req.params.id;
 
-    if (lat == null || lng == null) {
+    if (!lat || !lng) {
       return res.status(400).json({
         status: 'error',
         message: 'Latitude and longitude are required'
@@ -283,7 +305,7 @@ app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
     }
 
     const vehicle = await Vehicle.findOneAndUpdate(
-      { _id: req.params.id, driver: req.user.userId },
+      { _id: vehicleId, driver: req.user.userId },
       { currentLocation: { lat, lng } },
       { new: true }
     );
@@ -291,14 +313,18 @@ app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
     if (!vehicle) {
       return res.status(404).json({
         status: 'error',
-        message: 'Vehicle not found or unauthorized'
+        message: 'Vehicle not found or you are not authorized'
       });
     }
 
     res.json({
       status: 'success',
-      message: 'Location updated',
-      vehicle
+      message: 'Location updated successfully',
+      vehicle: {
+        id: vehicle._id,
+        name: vehicle.name,
+        location: vehicle.currentLocation
+      }
     });
 
   } catch (error) {
@@ -310,26 +336,88 @@ app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
   }
 });
 
-// Profile
+// Get user profile
 app.get('/profile', authenticateToken, async (req, res) => {
-  const user = await User.findById(req.user.userId).select('-password');
-  res.json({ status: 'success', user });
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
 });
 
-// ERROR HANDLER (correct position)
+// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ status: 'error', message: 'Something went wrong!' });
+  res.status(500).json({
+    status: 'error',
+    message: 'Something went wrong!'
+  });
 });
 
-// 404 MUST BE LAST ✔
+// 404 handler
 app.use('*', (req, res) => {
-  res.status(404).json({ status: 'error', message: 'Route not found' });
+  res.status(404).json({
+    status: 'error',
+    message: 'Route not found'
+  });
+});
+// Get single vehicle location (for passengers)
+// Get vehicles route (for passengers)
+app.get('/vehicles', async (req, res) => {
+  try {
+    const vehicles = await Vehicle.find({ isAvailable: true })
+      .populate('driver', 'email')
+      .select('name type number driver currentLocation'); // include currentLocation
+
+    // Format response
+    res.json(vehicles.map(vehicle => ({
+      _id: vehicle._id,
+      name: vehicle.name,
+      type: vehicle.type,
+      number: vehicle.number,
+      driverName: vehicle.driver ? vehicle.driver.email : 'Unknown',
+      currentLocation: vehicle.currentLocation,   // send lat/lng
+      rating: 5.0,
+      eta: '5 min'
+    })));
+  } catch (error) {
+    console.error('Get vehicles error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error'
+    });
+  }
 });
 
 // Start server
 app.listen(PORT, () => {
   console.log(`SwiftRide server is running on port ${PORT}`);
+  console.log(`API Base URL: http://localhost:${PORT}`);
 });
 
 module.exports = app;
+
+
+
