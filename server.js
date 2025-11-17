@@ -6,8 +6,12 @@ const mongoose = require('mongoose');
 
 require('dotenv').config();
 
-const app = express();
+const app = express();   // ✔️ FIRST create app
 const PORT = process.env.PORT || 3000;
+
+// Register Bus Routes (AFTER app initialized)
+const busRoutes = require("./routes/bus");
+app.use("/bus", busRoutes);   // ✔️ NOW this is correct
 
 // Middleware
 app.use(cors({
