@@ -53,6 +53,16 @@ const vehicleSchema = new mongoose.Schema({
 });
 const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
+// ------------------ NEW: LiveLocation Schema ------------------
+const liveLocationSchema = new mongoose.Schema({
+  busNumber: { type: String, required: true, unique: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  updatedAt: { type: Date, default: Date.now }
+});
+const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
+// -------------------------------------------------------------
+
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -167,7 +177,7 @@ app.post('/vehicles', authenticateToken, async (req, res) => {
   }
 });
 
-// Update vehicle location
+// Update vehicle location (existing route by vehicle id - driver only)
 app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
   try {
     const { lat, lng } = req.body;
@@ -185,6 +195,63 @@ app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
     res.status(500).json({ status:'error', message:'Internal server error' });
   }
 });
+
+// ------------------ NEW ROUTE: Driver -> Update Live Location by busNumber ------------------
+app.post("/update-location", authenticateToken, async (req, res) => {
+  try {
+    const { busNumber, lat, lng } = req.body;
+
+    if (!busNumber || lat === undefined || lng === undefined) {
+      return res.status(400).json({ status: "error", message: "busNumber, lat, lng required" });
+    }
+
+    // Only driver allowed to push location
+    if (req.user.role !== "driver") {
+      return res.status(403).json({ status: "error", message: "Only driver can send location" });
+    }
+
+    await LiveLocation.updateOne(
+      { busNumber },
+      { busNumber, lat, lng, updatedAt: new Date() },
+      { upsert: true }
+    );
+
+    // OPTIONAL: also update Vehicle.currentLocation if a vehicle with that number exists
+    await Vehicle.findOneAndUpdate(
+      { number: busNumber },
+      { currentLocation: { lat, lng } },
+      { new: true }
+    );
+
+    res.json({ status: "success", message: "Location updated" });
+  } catch (err) {
+    console.log("Location update error:", err);
+    res.status(500).json({ status: "error", message: "Internal server error" });
+  }
+});
+
+// ------------------ NEW ROUTE: Passenger -> Get live location by busNumber ------------------
+app.get("/get-location/:busNumber", async (req, res) => {
+  try {
+    const busNumber = req.params.busNumber;
+    const location = await LiveLocation.findOne({ busNumber });
+
+    if (!location) {
+      return res.status(404).json({ status: "error", message: "Bus location not found" });
+    }
+
+    res.json({
+      status: "success",
+      lat: location.lat,
+      lng: location.lng,
+      updatedAt: location.updatedAt
+    });
+  } catch (err) {
+    console.log("Fetch location error:", err);
+    res.status(500).json({ status: "error", message: "Internal server error" });
+  }
+});
+// ----------------------------------------------------------------------------------------------
 
 // Get user profile
 app.get('/profile', authenticateToken, async (req, res) => {
