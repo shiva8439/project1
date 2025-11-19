@@ -76,7 +76,7 @@ app.get('/', (req, res) => {
 });
 
 // Signup
-app.post('/signup', async (req, res) => {
+app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, role } = req.body;
     if (!email || !password || !role) return res.status(400).json({ status:'error', message:'Email, password, role required' });
@@ -93,7 +93,7 @@ app.post('/signup', async (req, res) => {
 });
 
 // Login
-app.post('/login', async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ status:'error', message:'Email & password required' });
