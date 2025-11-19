@@ -1,240 +1,199 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors({ origin: "*" }));
+app.use(cors());
 app.use(express.json());
 
 // MongoDB Connect
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB Connected Successfully'))
-  .catch(err => {
-    console.log('DB Error:', err.message);
-    process.exit(1);
-  });
+mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/swiftride")
+  .then(() => console.log("MongoDB Connected"))
+  .catch(err => console.log("MongoDB Error:", err));
 
-// ==================== ALL MODELS (Ek hi file mein) ====================
-
-const User = mongoose.model('User', new mongoose.Schema({
-  name: String,
+// Schemas
+const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['passenger', 'driver'], default: 'passenger' },
-  createdAt: { type: Date, default: Date.now }
-}));
+  name: { type: String },
+  role: { type: String, enum: ['driver', 'passenger'], default: 'passenger' }
+});
+const User = mongoose.model('User', userSchema);
 
-const Stop = mongoose.model('Stop', new mongoose.Schema({
-  name: String,
-  location: { lat: Number, lng: Number }
-}));
-
-const Route = mongoose.model('Route', new mongoose.Schema({
-  routeName: String,
-  routeNumber: String,
-  stops: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }]
-}));
-
-const Bus = mongoose.model('Bus', new mongoose.Schema({
-  busNumber: { type: String, required: true, unique: true },
-  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
-  currentLocation: { lat: Number, lng: Number },
-  isActive: { type: Boolean, default: true },
-  lastUpdated: { type: Date, default: Date.now }
-}));
-
-const Vehicle = mongoose.model('Vehicle', new mongoose.Schema({
-  name: String,
-  type: String,
+const vehicleSchema = new mongoose.Schema({
   number: { type: String, required: true, unique: true },
+  driverName: { type: String, required: true },
   driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  currentLocation: { lat: Number, lng: Number },
-  isAvailable: { type: Boolean, default: true }
-}));
+  from: String,
+  to: String,
+  currentLocation: {
+    lat: Number,
+    lng: Number
+  },
+  isActive: { type: Boolean, default: true }
+});
+const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'swiftRideSecret2025';
+const JWT_SECRET = process.env.JWT_SECRET || 'swiftride-secret-2025';
 
 // Auth Middleware
-const auth = (req, res, next) => {
+const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: "Token chahiye" });
+  if (!token) return res.status(401).json({ success: false, error: "Token required" });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Token galat hai" });
+    if (err) return res.status(403).json({ success: false, error: "Invalid token" });
     req.user = user;
     next();
   });
 };
 
-// Haversine Distance
-const getDistance = (a, b) => {
-  const toRad = x => x * Math.PI / 180;
-  const R = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lng - a.lng);
-  const x = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
-};
-
-// ==================== ROUTES ====================
+// Routes
 
 app.get('/', (req, res) => {
-  res.json({ message: "SwiftRide API LIVE", time: new Date().toLocaleString('en-IN') });
+  res.json({ message: "SwiftRide API Running!" });
 });
 
-// SIGNUP
+// SIGNUP - Fixed response format
 app.post('/api/signup', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email & password daalo" });
+    const { email, password, role, name } = req.body;
+    if (!email || !password) return res.status(400).json({ success: false, error: "Email & password required" });
 
-    if (await User.findOne({ email })) return res.status(400).json({ error: "Email already registered" });
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(400).json({ success: false, error: "User already exists" });
 
-    const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hash, role: role || 'passenger' });
-
-    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const hashed = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      email,
+      password: hashed,
+      role: role || 'passenger',
+      name: name || email.split('@')[0]
+    });
 
     res.status(201).json({
       success: true,
-      message: "Account ban gaya!",
-      token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      message: "Account created",
+      user: { email: user.email, role: user.role, name: user.name }
     });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// LOGIN
+// LOGIN - Fixed response format
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email & password daalo" });
-
     const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: "Email ya password galat" });
+    if (!user || !await bcrypt.compare(password, user.password)) {
+      return res.status(401).json({ success: false, error: "Invalid email or password" });
     }
 
-    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { userId: user._id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     res.json({
       success: true,
-      message: "Login successful!",
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET ALL ROUTES
-app.get('/api/routes', async (req, res) => {
-  try {
-    const routes = await Route.find().populate('stops');
-    res.json({ success: true, routes });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// NEAREST BUS
-app.post('/api/nearest-bus', async (req, res) => {
-  try {
-    const { lat, lng, routeId } = req.body;
-    if (!lat || !lng || !routeId) return res.status(400).json({ error: "Location & routeId daalo" });
-
-    const passenger = { lat: parseFloat(lat), lng: parseFloat(lng) };
-    const route = await Route.findById(routeId).populate('stops');
-    if (!route) return res.status(404).json({ error: "Route nahi mila" });
-
-    const buses = await Bus.find({ route: routeId, isActive: true });
-    if (!buses.length) return res.json({ nearestBus: null });
-
-    let best = null;
-    let minETA = Infinity;
-
-    for (let bus of buses) {
-      let nearestStop = null;
-      let minStopDist = Infinity;
-
-      for (let stop of route.stops) {
-        const d = getDistance(passenger, stop.location);
-        if (d < minStopDist) {
-          minStopDist = d;
-          nearestStop = stop;
-        }
+      user: {
+        email: user.email,
+        role: user.role,
+        name: user.name || email.split('@')[0]
       }
-      if (minStopDist > 2000) continue;
-
-      const eta = Math.round(getDistance(bus.currentLocation, nearestStop.location) / 1000 / 35 * 60);
-
-      if (eta < minETA) {
-        minETA = eta;
-        best = {
-          busNumber: bus.busNumber,
-          location: bus.currentLocation,
-          etaMinutes: eta,
-          nextStop: nearestStop.name
-        };
-      }
-    }
-    res.json({ success: true, nearestBus: best });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ADD VEHICLE (Driver only)
-app.post('/vehicles', auth, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ error: "Driver only" });
-
-  try {
-    const { name, type, number, lat, lng } = req.body;
-    const vehicle = await Vehicle.create({
-      name, type, number,
-      driver: req.user.userId,
-      currentLocation: { lat, lng }
     });
-    res.status(201).json({ success: true, vehicle });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// UPDATE VEHICLE LOCATION
-app.put('/vehicles/:id/location', auth, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ error: "Driver only" });
+// GET ALL ACTIVE BUSES (Passenger List)
+app.get('/vehicles', async (req, res) => {
+  try {
+    const vehicles = await Vehicle.find({ isActive: true });
+    res.json(vehicles.map(v => ({
+      _id: v._id,
+      number: v.number,
+      driverName: v.driverName,
+      currentLocation: v.currentLocation || { lat: null, lng: null }
+    })));
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET SINGLE BUS LOCATION (PassengerPanel)
+app.get('/vehicles/:id', async (req, res) => {
+  try {
+    const vehicle = await Vehicle.findById(req.params.id);
+    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
+
+    res.json({
+      _id: vehicle._id,
+      number: vehicle.number,
+      driverName: vehicle.driverName,
+      currentLocation: vehicle.currentLocation || { lat: null, lng: null }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: CREATE / REGISTER BUS (First time)
+app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+  const { number, driverName, from, to } = req.body;
+  if (!number || !driverName) return res.status(400).json({ success: false, error: "Bus number & driver name required" });
+
+  const exists = await Vehicle.findOne({ number });
+  if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
+
+  const vehicle = await Vehicle.create({
+    number,
+    driverName,
+    driver: req.user.userId,
+    from,
+    to,
+    isActive: true
+  });
+
+  res.json({ success: true, vehicle: { _id: vehicle._id, number } });
+});
+
+// DRIVER: UPDATE LOCATION (By Bus Number → Changed to _id in Flutter later)
+app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
 
   const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ success: false, error: "lat & lng required" });
+
   const vehicle = await Vehicle.findOneAndUpdate(
-    { _id: req.params.id, driver: req.user.userId },
+    { number: req.params.number },
     { currentLocation: { lat, lng } },
     { new: true }
   );
-  if (!vehicle) return res.status(404).json({ error: "Vehicle nahi mila" });
-  res.json({ success: true, vehicle });
+
+  if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
+
+  res.json({ success: true, message: "Location updated" });
 });
 
-// GET ALL VEHICLES
-app.get('/vehicles', async (req, res) => {
-  const vehicles = await Vehicle.find({ isAvailable: true })
-    .populate('driver', 'name email')
-    .select('name type number currentLocation');
-  res.json(vehicles);
+// Optional: End trip
+app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
+  await Vehicle.updateOne({ number: req.params.number }, { isActive: false, currentLocation: null });
+  res.json({ success: true, message: "Trip ended" });
 });
 
-// Start Server
 app.listen(PORT, () => {
-  console.log(`SwiftRide API chal raha hai: https://project1-13.onrender.com`);
-  console.log(`Login: POST /api/login`);
+  console.log(`SwiftRide Backend Running on http://localhost:${PORT}`);
 });
