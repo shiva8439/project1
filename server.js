@@ -12,47 +12,71 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log('MongoDB Connected'))
-.catch(err => {
-  console.log('MongoDB Error:', err.message);
-  process.exit(1);
-});
+// MongoDB Connect
+mongoose.connect(process.env.MONGO_URI || "mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/swiftride?retryWrites=true&w=majority")
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => {
+    console.log('DB Error:', err.message);
+    process.exit(1);
+  });
 
-// Import Models (models folder mein hone chahiye)
-const User = require('./User');
-const Bus = require('./Bus');
-const Stop = require('./Stop');
-const Route = require('./Route');
+// ==================== ALL MODELS (Direct in server.js) ====================
+
+const User = mongoose.model('User', new mongoose.Schema({
+  name: String,
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ['passenger', 'driver'], default: 'passenger' },
+  createdAt: { type: Date, default: Date.now }
+}));
+
+const Stop = mongoose.model('Stop', new mongoose.Schema({
+  name: String,
+  location: {
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true }
+  }
+}));
+
+const Route = mongoose.model('Route', new mongoose.Schema({
+  routeName: String,
+  routeNumber: String,
+  stops: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }]
+}));
+
+const Bus = mongoose.model('Bus', new mongoose.Schema({
+  busNumber: { type: String, required: true, unique: true },
+  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
+  currentLocation: {
+    lat: Number,
+    lng: Number
+  },
+  isActive: { type: Boolean, default: true },
+  lastUpdated: { type: Date, default: Date.now }
+}));
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'swiftRideSecret2025';
+const JWT_SECRET = process.env.JWT_SECRET || 'swiftRideSuperSecret2025';
 
 // JWT Middleware
-const authenticateToken = (req, res, next) => {
+const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: "Token required" });
+  if (!token) return res.status(401).json({ error: "Login karo pehle" });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Invalid token" });
+    if (err) return res.status(403).json({ error: "Token galat hai" });
     req.user = user;
     next();
   });
 };
 
-// Haversine Distance
+// Haversine Distance (meter mein)
 const getDistance = (loc1, loc2) => {
+  const toRad = (x) => x * Math.PI / 180;
   const R = 6371000;
-  const toRad = deg => deg * Math.PI / 180;
   const dLat = toRad(loc2.lat - loc1.lat);
   const dLon = toRad(loc2.lng - loc1.lng);
-  const a = Math.sin(dLat/2)**2 + 
-            Math.cos(toRad(loc1.lat)) * Math.cos(toRad(loc2.lat)) * 
-            Math.sin(dLon/2)**2;
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(loc1.lat)) * Math.cos(toRad(loc2.lat)) * Math.sin(dLon/2)**2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
 };
@@ -60,125 +84,96 @@ const getDistance = (loc1, loc2) => {
 // ==================== ROUTES ====================
 
 app.get('/', (req, res) => {
-  res.json({ message: "SwiftRide Bus Tracking API - LIVE!" });
+  res.json({ 
+    message: "SwiftRide Bus Tracker API LIVE", 
+    time: new Date().toLocaleString('en-IN'),
+    docs: "https://project1-13.onrender.com/api/*"
+  });
 });
 
-// ==================== AUTH ====================
-
-// Signup
+// SIGNUP
 app.post('/api/signup', async (req, res) => {
-  const { name, email, password, role } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email & password required" });
-
   try {
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: "User already exists" });
+    const { name, email, password, role } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email aur password daalo" });
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role: role || 'passenger' // passenger ya driver
-    });
+    if (await User.findOne({ email })) return res.status(400).json({ error: "Email already used" });
 
-    const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const hashed = await bcrypt.hash(password, 10);
+    const user = await User.create({ name, email, password: hashed, role: role || 'passenger' });
+
+    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({
-      message: "User created successfully",
+      success: true,
+      message: "Account ban gaya!",
       token,
       user: { id: user._id, name: user.name, email: user.email, role: user.role }
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Login
+// LOGIN
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email & password required" });
-
   try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email aur password daalo" });
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) return res.status(401).json({ error: "Email galat hai" });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: "Password galat hai" });
 
-    const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
-      message: "Login successful",
+      success: true,
+      message: "Login ho gaya!",
       token,
       user: { id: user._id, name: user.name, email: user.email, role: user.role }
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Get Profile
-app.get('/api/profile', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).select('-password');
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==================== BUS TRACKING ====================
-
+// ALL ROUTES
 app.get('/api/routes', async (req, res) => {
   try {
     const routes = await Route.find().populate('stops');
-    res.json({ success: true, routes });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, count: routes.length, routes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
+// ALL STOPS
 app.get('/api/stops', async (req, res) => {
   try {
     const stops = await Stop.find();
-    res.json({ success: true, stops });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, count: stops.length, stops });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.get('/api/routes/:routeId/buses', async (req, res) => {
-  try {
-    const buses = await Bus.find({ route: req.params.routeId, isActive: true });
-    res.json({ success: true, buses });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Nearest Bus
+// NEAREST BUS
 app.post('/api/nearest-bus', async (req, res) => {
-  const { lat, lng, routeId } = req.body;
-  if (!lat || !lng || !routeId) return res.status(400).json({ error: "lat, lng, routeId required" });
-
   try {
+    const { lat, lng, routeId } = req.body;
+    if (!lat || !lng || !routeId) return res.status(400).json({ error: "Location aur routeId daalo" });
+
     const passengerLoc = { lat: parseFloat(lat), lng: parseFloat(lng) };
     const route = await Route.findById(routeId).populate('stops');
-    if (!route) return res.status(404).json({ error: "Route not found" });
+    if (!route) return res.status(404).json({ error: "Route nahi mila" });
 
     const buses = await Bus.find({ route: routeId, isActive: true });
-    if (buses.length === 0) return res.json({ message: "No bus on route", nearestBus: null });
+    if (buses.length === 0) return res.json({ message: "Is route pe koi bus nahi hai", nearestBus: null });
 
-    let nearestBus = null;
+    let best = null;
     let minETA = Infinity;
 
     for (let bus of buses) {
@@ -191,15 +186,14 @@ app.post('/api/nearest-bus', async (req, res) => {
           nearestStop = stop;
         }
       }
+      if (minDist > 2000) continue; // 2km se zyada door
 
-      if (minDist > 2000) continue;
-
-      const busToStop = getDistance(bus.currentLocation, nearestStop.location);
-      const eta = Math.round((busToStop / 1000) / 35 * 60);
+      const distToStop = getDistance(bus.currentLocation, nearestStop.location);
+      const eta = Math.round((distToStop / 1000) / 35 * 60); // 35 km/h
 
       if (eta < minETA) {
         minETA = eta;
-        nearestBus = {
+        best = {
           busNumber: bus.busNumber,
           location: bus.currentLocation,
           etaMinutes: eta,
@@ -209,36 +203,37 @@ app.post('/api/nearest-bus', async (req, res) => {
       }
     }
 
-    res.json({ success: true, nearestBus: nearestBus || null });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, nearestBus: best || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Driver: Update Location
-app.put('/api/buses/:busNumber/location', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ error: "Driver only" });
+// DRIVER: Update Bus Location
+app.put('/api/buses/:busNumber/location', authenticate, async (req, res) => {
+  if (req.user.role !== 'driver') return res.status(403).json({ error: "Sirf driver kar sakta hai" });
 
   const { lat, lng } = req.body;
-  if (!lat || !lng) return res.status(400).json({ error: "lat & lng required" });
+  const { busNumber } = req.params;
 
   try {
     const bus = await Bus.findOneAndUpdate(
-      { busNumber: req.params.busNumber },
+      { busNumber },
       { currentLocation: { lat: parseFloat(lat), lng: parseFloat(lng) }, lastUpdated: new Date() },
       { new: true }
     );
 
-    if (!bus) return res.status(404).json({ error: "Bus not found" });
-    res.json({ success: true, message: "Location updated", bus });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!bus) return res.status(404).json({ error: "Bus nahi mili" });
+    res.json({ success: true, message: "Location update ho gaya", bus });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Start Server
+// Server Start
 app.listen(PORT, () => {
-  console.log(`SwiftRide API Running on port ${PORT}`);
-  console.log(`Live URL: https://your-app.onrender.com`);
+  console.log(`SwiftRide API chal raha hai: https://project1-13.onrender.com`);
+  console.log(`Login URL: https://project1-13.onrender.com/api/login`);
 });
 
+module.exports = app;
