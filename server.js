@@ -1,239 +1,219 @@
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors({ origin: "*" }));
+app.use(cors({
+  origin: "*", 
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"]
+}));
+
+app.options('*', cors());
 app.use(express.json());
 
-// MongoDB Connect
-mongoose.connect(process.env.MONGO_URI || "mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/swiftride?retryWrites=true&w=majority")
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => {
-    console.log('DB Error:', err.message);
-    process.exit(1);
-  });
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => {
+  console.log('MongoDB connected successfully');
+}).catch((err) => {
+  console.log('MongoDB connection error:', err.message);
+  console.log('Starting server without MongoDB...');
+});
 
-// ==================== ALL MODELS (Direct in server.js) ====================
-
-const User = mongoose.model('User', new mongoose.Schema({
-  name: String,
+// User Schema
+const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['passenger', 'driver'], default: 'passenger' },
+  role: { type: String, enum: ['driver', 'passenger'], default: 'passenger' },
   createdAt: { type: Date, default: Date.now }
-}));
+});
+const User = mongoose.model('User', userSchema);
 
-const Stop = mongoose.model('Stop', new mongoose.Schema({
-  name: String,
-  location: {
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true }
-  }
-}));
-
-const Route = mongoose.model('Route', new mongoose.Schema({
-  routeName: String,
-  routeNumber: String,
-  stops: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }]
-}));
-
-const Bus = mongoose.model('Bus', new mongoose.Schema({
-  busNumber: { type: String, required: true, unique: true },
-  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
+// Vehicle Schema
+const vehicleSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  type: { type: String, required: true },
+  number: { type: String, required: true },
+  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  isAvailable: { type: Boolean, default: true },
   currentLocation: {
-    lat: Number,
-    lng: Number
-  },
-  isActive: { type: Boolean, default: true },
-  lastUpdated: { type: Date, default: Date.now }
-}));
+    lat: { type: Number },
+    lng: { type: Number }
+  }
+});
+const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'swiftRideSuperSecret2025';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// JWT Middleware
-const authenticate = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: "Login karo pehle" });
-
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ status: 'error', message: 'Access token required' });
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Token galat hai" });
+    if (err) return res.status(403).json({ status: 'error', message: 'Invalid token' });
     req.user = user;
     next();
   });
 };
 
-// Haversine Distance (meter mein)
-const getDistance = (loc1, loc2) => {
-  const toRad = (x) => x * Math.PI / 180;
-  const R = 6371000;
-  const dLat = toRad(loc2.lat - loc1.lat);
-  const dLon = toRad(loc2.lng - loc1.lng);
-  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(loc1.lat)) * Math.cos(toRad(loc2.lat)) * Math.sin(dLon/2)**2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-};
+// ------------------ ROUTES ------------------
 
-// ==================== ROUTES ====================
-
+// Health check
 app.get('/', (req, res) => {
-  res.json({ 
-    message: "SwiftRide Bus Tracker API LIVE", 
-    time: new Date().toLocaleString('en-IN'),
-    docs: "https://project1-13.onrender.com/api/*"
-  });
+  res.json({ message: 'SwiftRide API is running!' });
 });
 
-// SIGNUP
-app.post('/api/signup', async (req, res) => {
+// Signup
+app.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email aur password daalo" });
-
-    if (await User.findOne({ email })) return res.status(400).json({ error: "Email already used" });
-
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed, role: role || 'passenger' });
-
-    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({
-      success: true,
-      message: "Account ban gaya!",
-      token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    const { email, password, role } = req.body;
+    if (!email || !password || !role) return res.status(400).json({ status:'error', message:'Email, password, role required' });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ status:'error', message:'User already exists' });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ email, password: hashedPassword, role });
+    await newUser.save();
+    res.status(201).json({ status:'success', message:'User created', user:{ id:newUser._id, email:newUser.email, role:newUser.role } });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
   }
 });
 
-// LOGIN
-app.post('/api/login', async (req, res) => {
+// Login
+app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email aur password daalo" });
-
+    if (!email || !password) return res.status(400).json({ status:'error', message:'Email & password required' });
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ error: "Email galat hai" });
+    if (!user) return res.status(401).json({ status:'error', message:'Invalid email or password' });
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) return res.status(401).json({ status:'error', message:'Invalid email or password' });
+    const token = jwt.sign({ userId:user._id, email:user.email, role:user.role }, JWT_SECRET, { expiresIn:'24h' });
+    res.json({ status:'success', message:'Login successful', token, user:{ id:user._id, email:user.email, role:user.role } });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
+  }
+});
 
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: "Password galat hai" });
+// Get all vehicles
+app.get('/vehicles', async (req, res) => {
+  try {
+    const vehicles = await Vehicle.find({ isAvailable:true })
+      .populate('driver','email')
+      .select('name type number driver currentLocation');
+    res.json(vehicles.map(v => ({
+      _id:v._id,
+      name:v.name,
+      type:v.type,
+      number:v.number,
+      driverName:v.driver ? v.driver.email : 'Unknown',
+      currentLocation:v.currentLocation,
+      rating:5.0,
+      eta:'5 min'
+    })));
+  } catch (error) {
+    console.error('Get vehicles error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
+  }
+});
 
-    const token = jwt.sign({ userId: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
+// Get single vehicle by ID (for PassengerPanel)
+app.get('/vehicles/:id', async (req, res) => {
+  try {
+    const vehicle = await Vehicle.findById(req.params.id)
+      .select('name number type currentLocation');
+    if (!vehicle) return res.status(404).json({ status:'error', message:'Vehicle not found' });
     res.json({
-      success: true,
-      message: "Login ho gaya!",
-      token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
+      _id: vehicle._id,
+      name: vehicle.name,
+      type: vehicle.type,
+      number: vehicle.number,
+      currentLocation: vehicle.currentLocation
     });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  } catch (error) {
+    console.error('Get single vehicle error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
   }
 });
 
-// ALL ROUTES
-app.get('/api/routes', async (req, res) => {
+// Add vehicle (drivers only)
+app.post('/vehicles', authenticateToken, async (req, res) => {
   try {
-    const routes = await Route.find().populate('stops');
-    res.json({ success: true, count: routes.length, routes });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    const { name, type, number, currentLocation } = req.body;
+    if (req.user.role !== 'driver') return res.status(403).json({ status:'error', message:'Only drivers can add vehicles' });
+    if (!name || !type || !number) return res.status(400).json({ status:'error', message:'Name, type, number required' });
+    const existingVehicle = await Vehicle.findOne({ number });
+    if (existingVehicle) return res.status(400).json({ status:'error', message:'Vehicle with this number already exists' });
+    const newVehicle = new Vehicle({ name, type, number, driver:req.user.userId, currentLocation });
+    await newVehicle.save();
+    res.status(201).json({ status:'success', message:'Vehicle added', vehicle:{ id:newVehicle._id, name:newVehicle.name, type:newVehicle.type, number:newVehicle.number } });
+  } catch (error) {
+    console.error('Add vehicle error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
   }
 });
 
-// ALL STOPS
-app.get('/api/stops', async (req, res) => {
+// Update vehicle location
+app.put('/vehicles/:id/location', authenticateToken, async (req, res) => {
   try {
-    const stops = await Stop.find();
-    res.json({ success: true, count: stops.length, stops });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// NEAREST BUS
-app.post('/api/nearest-bus', async (req, res) => {
-  try {
-    const { lat, lng, routeId } = req.body;
-    if (!lat || !lng || !routeId) return res.status(400).json({ error: "Location aur routeId daalo" });
-
-    const passengerLoc = { lat: parseFloat(lat), lng: parseFloat(lng) };
-    const route = await Route.findById(routeId).populate('stops');
-    if (!route) return res.status(404).json({ error: "Route nahi mila" });
-
-    const buses = await Bus.find({ route: routeId, isActive: true });
-    if (buses.length === 0) return res.json({ message: "Is route pe koi bus nahi hai", nearestBus: null });
-
-    let best = null;
-    let minETA = Infinity;
-
-    for (let bus of buses) {
-      let nearestStop = null;
-      let minDist = Infinity;
-      for (let stop of route.stops) {
-        const d = getDistance(passengerLoc, stop.location);
-        if (d < minDist) {
-          minDist = d;
-          nearestStop = stop;
-        }
-      }
-      if (minDist > 2000) continue; // 2km se zyada door
-
-      const distToStop = getDistance(bus.currentLocation, nearestStop.location);
-      const eta = Math.round((distToStop / 1000) / 35 * 60); // 35 km/h
-
-      if (eta < minETA) {
-        minETA = eta;
-        best = {
-          busNumber: bus.busNumber,
-          location: bus.currentLocation,
-          etaMinutes: eta,
-          nextStop: nearestStop.name,
-          distanceFromYou: Math.round(getDistance(passengerLoc, bus.currentLocation))
-        };
-      }
-    }
-
-    res.json({ success: true, nearestBus: best || null });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// DRIVER: Update Bus Location
-app.put('/api/buses/:busNumber/location', authenticate, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ error: "Sirf driver kar sakta hai" });
-
-  const { lat, lng } = req.body;
-  const { busNumber } = req.params;
-
-  try {
-    const bus = await Bus.findOneAndUpdate(
-      { busNumber },
-      { currentLocation: { lat: parseFloat(lat), lng: parseFloat(lng) }, lastUpdated: new Date() },
-      { new: true }
+    const { lat, lng } = req.body;
+    const vehicleId = req.params.id;
+    if (!lat || !lng) return res.status(400).json({ status:'error', message:'Latitude & longitude required' });
+    const vehicle = await Vehicle.findOneAndUpdate(
+      { _id:vehicleId, driver:req.user.userId },
+      { currentLocation:{lat,lng} },
+      { new:true }
     );
-
-    if (!bus) return res.status(404).json({ error: "Bus nahi mili" });
-    res.json({ success: true, message: "Location update ho gaya", bus });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    if (!vehicle) return res.status(404).json({ status:'error', message:'Vehicle not found or unauthorized' });
+    res.json({ status:'success', message:'Location updated', vehicle:{ id:vehicle._id, name:vehicle.name, location:vehicle.currentLocation } });
+  } catch (error) {
+    console.error('Update location error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
   }
 });
 
-// Server Start
+// Get user profile
+app.get('/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) return res.status(404).json({ status:'error', message:'User not found' });
+    res.json({ status:'success', user:{ id:user._id, email:user.email, role:user.role, createdAt:user.createdAt } });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ status:'error', message:'Internal server error' });
+  }
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ status:'error', message:'Something went wrong!' });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ status:'error', message:'Route not found' });
+});
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`SwiftRide API chal raha hai: https://project1-13.onrender.com`);
-  console.log(`Login URL: https://project1-13.onrender.com/api/login`);
+  console.log(`SwiftRide server is running on port ${PORT}`);
+  console.log(`API Base URL: http://localhost:${PORT}`);
 });
 
 module.exports = app;
+
