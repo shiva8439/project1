@@ -18,10 +18,10 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.log('MongoDB Error:', err));
 
 // Import Models
-const User = require('./models/User');
-const Bus = require('./models/Bus');
-const Stop = require('./models/Stop');
-const Route = require('./models/Route'); // You'll create this
+const User  = require('./User');     // direct root se
+const Bus   = require('./Bus');      // agar Bus.js bana hai toh
+const Stop  = require('./Stop');
+const Route = require('./Route');// You'll create this
 
 // JWT Middleware
 const authenticateToken = (req, res, next) => {
@@ -180,3 +180,4 @@ app.listen(PORT, () => {
   console.log(`Bus Tracking Server Running on Port ${PORT}`);
   console.log(`http://localhost:${PORT}`);
 });
+
