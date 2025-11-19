@@ -24,10 +24,10 @@ mongoose.connect(process.env.MONGO_URI, {
 });
 
 // Import Models (models folder mein hone chahiye)
-const User = require('./models/User');
-const Bus = require('./models/Bus');
-const Stop = require('./models/Stop');
-const Route = require('./models/Route');
+const User = require('./User');
+const Bus = require('./Bus');
+const Stop = require('./Stop');
+const Route = require('./Route');
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'swiftRideSecret2025';
@@ -241,3 +241,4 @@ app.listen(PORT, () => {
   console.log(`SwiftRide API Running on port ${PORT}`);
   console.log(`Live URL: https://your-app.onrender.com`);
 });
+
