@@ -4,6 +4,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -187,13 +189,65 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
 
   res.json({ success: true, message: "Location updated" });
 });
+// ==================== SOCKET.IO ADD KAR DE (ye missing tha!!!)
+const http = require('http');
+const server = http.createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
+// Jab location update hoti hai tab sabko batao
+app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
+
+  const { lat, lng, bearing } = req.body;
+  if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
+
+  const vehicle = await Vehicle.findOneAndUpdate(
+    { number: req.params.number },
+    { 
+      currentLocation: { lat, lng },
+      $set: { 'currentLocation.bearing': bearing || 0 }
+    },
+    { new: true }
+  );
+
+  if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
+
+  // YE LINE SABSE ZAROORI HAI – SAB PASSENGERS KO LIVE LOCATION BHEJO!!!
+  io.to(vehicle._id.toString()).emit('locationUpdate', {
+    lat,
+    lng,
+    bearing: bearing || 0
+  });
+
+  res.json({ success: true, message: "Location updated" });
+});
+
+// Socket connection
+io.on('connection', (socket) => {
+  console.log('New client connected:', socket.id);
+
+  socket.on('joinVehicle', (vehicleId) => {
+    socket.join(vehicleId);
+    console.log(`Client joined vehicle: ${vehicleId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
+// app.listen ki jagah server.listen karo
+server.listen(PORT, () => {
+  console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
+});
 // Optional: End trip
 app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
   await Vehicle.updateOne({ number: req.params.number }, { isActive: false, currentLocation: null });
   res.json({ success: true, message: "Trip ended" });
-});
-
-app.listen(PORT, () => {
-  console.log(`SwiftRide Backend Running on http://localhost:${PORT}`);
 });
