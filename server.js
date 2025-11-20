@@ -46,10 +46,14 @@ const vehicleSchema = new mongoose.Schema({
 });
 const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
-// Route (bus route) schema
-const stopRefSchema = new mongoose.Schema({
-  stop: { type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }
+// Route & Stop (Design A)
+const stopSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  createdAt: { type: Date, default: Date.now }
 });
+const Stop = mongoose.model('Stop', stopSchema);
 
 const routeSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -60,16 +64,7 @@ const routeSchema = new mongoose.Schema({
 });
 const RouteModel = mongoose.model('Route', routeSchema);
 
-// Stop schema
-const stopSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
-const Stop = mongoose.model('Stop', stopSchema);
-
-// BusLive (active trip) schema
+// BusLive (active trip) and LiveLocation (history)
 const busLiveSchema = new mongoose.Schema({
   vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
   route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
@@ -82,7 +77,6 @@ const busLiveSchema = new mongoose.Schema({
 });
 const BusLive = mongoose.model('BusLive', busLiveSchema);
 
-// LiveLocation (history) schema
 const liveLocationSchema = new mongoose.Schema({
   vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
   lat: { type: Number, required: true },
@@ -90,21 +84,25 @@ const liveLocationSchema = new mongoose.Schema({
   bearing: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now }
 });
-liveLocationSchema.index({ vehicle: 1, createdAt: -1 });
+liveLocationSchema.index({ vehicle: 1, createdAt: -1 }); // efficient queries
 const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
 
 // ----------------- Auth -----------------
 const JWT_SECRET = process.env.JWT_SECRET || 'swiftride-secret-2025';
 
 const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ success: false, error: "Token required" });
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ success: false, error: "Token required" });
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ success: false, error: "Invalid token" });
-    req.user = user;
-    next();
-  });
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) return res.status(403).json({ success: false, error: "Invalid token" });
+      req.user = user;
+      next();
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 };
 
 // ----------------- Basic Routes -----------------
@@ -157,11 +155,7 @@ app.post('/api/login', async (req, res) => {
     res.json({
       success: true,
       token,
-      user: {
-        email: user.email,
-        role: user.role,
-        name: user.name || email.split('@')[0]
-      }
+      user: { email: user.email, role: user.role, name: user.name || email.split('@')[0] }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -240,8 +234,6 @@ app.post('/api/stops', authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// Get all stops
 app.get('/api/stops', async (req, res) => {
   try {
     const stops = await Stop.find().sort({ createdAt: -1 });
@@ -251,7 +243,7 @@ app.get('/api/stops', async (req, res) => {
   }
 });
 
-// Create a route (with stops array of stopIds)
+// Create a route
 app.post('/api/routes', authenticateToken, async (req, res) => {
   try {
     const { name, from, to, stops } = req.body;
@@ -263,8 +255,6 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// Get routes
 app.get('/api/routes', async (req, res) => {
   try {
     const routes = await RouteModel.find().populate('stops');
@@ -273,8 +263,6 @@ app.get('/api/routes', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-// Get route by id
 app.get('/api/routes/:id', async (req, res) => {
   try {
     const route = await RouteModel.findById(req.params.id).populate('stops');
@@ -297,7 +285,6 @@ app.post('/api/trips/start', authenticateToken, async (req, res) => {
     const vehicle = await Vehicle.findById(vehicleId);
     if (!vehicle) return res.status(404).json({ success: false, error: "Vehicle not found" });
 
-    // create buslive
     const busLive = await BusLive.create({
       vehicle: vehicle._id,
       route: routeId || null,
@@ -322,11 +309,11 @@ app.get('/api/buslives', async (req, res) => {
   }
 });
 
-// Get livelocations for a vehicle (latest N)
+// Get livelocations (history)
 app.get('/api/livelocations/:vehicleId', async (req, res) => {
   try {
     const vehicleId = req.params.vehicleId;
-    const limit = parseInt(req.query.limit || '50', 10);
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 1000);
     const locations = await LiveLocation.find({ vehicle: vehicleId }).sort({ createdAt: -1 }).limit(limit);
     res.json({ success: true, locations });
   } catch (err) {
@@ -339,22 +326,21 @@ const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
 
   socket.on('joinVehicle', (vehicleId) => {
-    socket.join(vehicleId);
+    if (!vehicleId) return;
+    socket.join(vehicleId.toString());
     console.log(`Client joined vehicle: ${vehicleId} (${socket.id})`);
   });
 
   socket.on('leaveVehicle', (vehicleId) => {
-    socket.leave(vehicleId);
+    if (!vehicleId) return;
+    socket.leave(vehicleId.toString());
   });
 
   socket.on('disconnect', () => {
@@ -363,8 +349,8 @@ io.on('connection', (socket) => {
 });
 
 // ----------------- LOCATION UPDATE (driver) -----------------
-// This endpoint updates Vehicle.currentLocation, creates LiveLocation entry,
-// updates BusLive.lastUpdated (if exists) and emits socket to vehicle room.
+// SINGLE route (no duplicates). This updates vehicle.currentLocation,
+// saves history (LiveLocation), updates BusLive lastUpdated and emits socket.
 app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
@@ -372,9 +358,13 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
     const { lat, lng, bearing, speed } = req.body;
     if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
 
+    // decode the incoming param (handles spaces, special chars)
+    const vehicleNumber = decodeURIComponent(req.params.number);
+
+    // update vehicle current location
     const vehicle = await Vehicle.findOneAndUpdate(
-      { number: req.params.number },
-      { 
+      { number: vehicleNumber },
+      {
         currentLocation: { lat, lng, bearing: bearing || 0, updatedAt: new Date() }
       },
       { new: true }
@@ -390,8 +380,8 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
       bearing: bearing || 0
     });
 
-    // update active BusLive (if any)
-    const busLive = await BusLive.findOneAndUpdate(
+    // update active BusLive (if exists)
+    await BusLive.findOneAndUpdate(
       { vehicle: vehicle._id, isActive: true },
       { lastUpdated: new Date(), bearing: bearing || 0, speed: speed || null },
       { new: true }
@@ -412,9 +402,11 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
 // End trip
 app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
   try {
-    const vehicle = await Vehicle.findOneAndUpdate({ number: req.params.number }, { isActive: false, currentLocation: null }, { new: true });
-    // mark buslive inactive
-    await BusLive.updateMany({ vehicle: vehicle._id, isActive: true }, { isActive: false });
+    const vehicleNumber = decodeURIComponent(req.params.number);
+    const vehicle = await Vehicle.findOneAndUpdate({ number: vehicleNumber }, { isActive: false, currentLocation: null }, { new: true });
+    if (vehicle) {
+      await BusLive.updateMany({ vehicle: vehicle._id, isActive: true }, { isActive: false });
+    }
     res.json({ success: true, message: "Trip ended" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
