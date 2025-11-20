@@ -4,8 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
-const http = require('http');
-const { Server } = require('socket.io');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
