@@ -1,10 +1,10 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 require('dotenv').config();
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,11 +14,14 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connect
-mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/swiftride")
+mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/swiftride", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log("MongoDB Error:", err));
 
-// Schemas
+// ----------------- Schemas / Models -----------------
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -35,15 +38,64 @@ const vehicleSchema = new mongoose.Schema({
   to: String,
   currentLocation: {
     lat: Number,
-    lng: Number
+    lng: Number,
+    bearing: { type: Number, default: 0 },
+    updatedAt: Date
   },
   isActive: { type: Boolean, default: true }
 });
 const Vehicle = mongoose.model('Vehicle', vehicleSchema);
 
+// Route (bus route) schema
+const stopRefSchema = new mongoose.Schema({
+  stop: { type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }
+});
+
+const routeSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  from: String,
+  to: String,
+  stops: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }],
+  createdAt: { type: Date, default: Date.now }
+});
+const RouteModel = mongoose.model('Route', routeSchema);
+
+// Stop schema
+const stopSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const Stop = mongoose.model('Stop', stopSchema);
+
+// BusLive (active trip) schema
+const busLiveSchema = new mongoose.Schema({
+  vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
+  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
+  driverName: String,
+  startedAt: { type: Date, default: Date.now },
+  lastUpdated: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true },
+  speed: Number,
+  bearing: Number
+});
+const BusLive = mongoose.model('BusLive', busLiveSchema);
+
+// LiveLocation (history) schema
+const liveLocationSchema = new mongoose.Schema({
+  vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  bearing: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+liveLocationSchema.index({ vehicle: 1, createdAt: -1 });
+const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
+
+// ----------------- Auth -----------------
 const JWT_SECRET = process.env.JWT_SECRET || 'swiftride-secret-2025';
 
-// Auth Middleware
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ success: false, error: "Token required" });
@@ -55,13 +107,12 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Routes
-
+// ----------------- Basic Routes -----------------
 app.get('/', (req, res) => {
   res.json({ message: "SwiftRide API Running!" });
 });
 
-// SIGNUP - Fixed response format
+// SIGNUP
 app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, role, name } = req.body;
@@ -88,7 +139,7 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-// LOGIN - Fixed response format
+// LOGIN
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -117,6 +168,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// ----------------- Vehicle endpoints -----------------
 // GET ALL ACTIVE BUSES (Passenger List)
 app.get('/vehicles', async (req, res) => {
   try {
@@ -132,7 +184,7 @@ app.get('/vehicles', async (req, res) => {
   }
 });
 
-// GET SINGLE BUS LOCATION (PassengerPanel)
+// GET SINGLE BUS (by id)
 app.get('/vehicles/:id', async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id);
@@ -149,46 +201,140 @@ app.get('/vehicles/:id', async (req, res) => {
   }
 });
 
-// DRIVER: CREATE / REGISTER BUS (First time)
+// DRIVER: REGISTER VEHICLE
 app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
 
-  const { number, driverName, from, to } = req.body;
-  if (!number || !driverName) return res.status(400).json({ success: false, error: "Bus number & driver name required" });
+    const { number, driverName, from, to } = req.body;
+    if (!number || !driverName) return res.status(400).json({ success: false, error: "Bus number & driver name required" });
 
-  const exists = await Vehicle.findOne({ number });
-  if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
+    const exists = await Vehicle.findOne({ number });
+    if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
 
-  const vehicle = await Vehicle.create({
-    number,
-    driverName,
-    driver: req.user.userId,
-    from,
-    to,
-    isActive: true
-  });
+    const vehicle = await Vehicle.create({
+      number,
+      driverName,
+      driver: req.user.userId,
+      from,
+      to,
+      isActive: true
+    });
 
-  res.json({ success: true, vehicle: { _id: vehicle._id, number } });
+    res.json({ success: true, vehicle: { _id: vehicle._id, number } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-// DRIVER: UPDATE LOCATION (By Bus Number → Changed to _id in Flutter later)
-app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
+// ----------------- ROUTES & STOPS -----------------
+// Create a stop
+app.post('/api/stops', authenticateToken, async (req, res) => {
+  try {
+    const { name, lat, lng } = req.body;
+    if (!name || lat == null || lng == null) return res.status(400).json({ success: false, error: "name, lat & lng required" });
 
-  const { lat, lng } = req.body;
-  if (!lat || !lng) return res.status(400).json({ success: false, error: "lat & lng required" });
-
-  const vehicle = await Vehicle.findOneAndUpdate(
-    { number: req.params.number },
-    { currentLocation: { lat, lng } },
-    { new: true }
-  );
-
-  if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
-
-  res.json({ success: true, message: "Location updated" });
+    const stop = await Stop.create({ name, lat, lng });
+    res.status(201).json({ success: true, stop });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
-// ==================== SOCKET.IO ADD KAR DE (ye missing tha!!!)
+
+// Get all stops
+app.get('/api/stops', async (req, res) => {
+  try {
+    const stops = await Stop.find().sort({ createdAt: -1 });
+    res.json({ success: true, stops });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create a route (with stops array of stopIds)
+app.post('/api/routes', authenticateToken, async (req, res) => {
+  try {
+    const { name, from, to, stops } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: "name required" });
+
+    const route = await RouteModel.create({ name, from, to, stops: stops || [] });
+    res.status(201).json({ success: true, route });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get routes
+app.get('/api/routes', async (req, res) => {
+  try {
+    const routes = await RouteModel.find().populate('stops');
+    res.json({ success: true, routes });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get route by id
+app.get('/api/routes/:id', async (req, res) => {
+  try {
+    const route = await RouteModel.findById(req.params.id).populate('stops');
+    if (!route) return res.status(404).json({ success: false, error: "Route not found" });
+    res.json({ success: true, route });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------- BUSLIVES & LIVELOCATIONS -----------------
+// Start a trip (create buslive)
+app.post('/api/trips/start', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { vehicleId, routeId } = req.body;
+    if (!vehicleId) return res.status(400).json({ success: false, error: "vehicleId required" });
+
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) return res.status(404).json({ success: false, error: "Vehicle not found" });
+
+    // create buslive
+    const busLive = await BusLive.create({
+      vehicle: vehicle._id,
+      route: routeId || null,
+      driverName: vehicle.driverName,
+      startedAt: new Date(),
+      isActive: true
+    });
+
+    res.json({ success: true, busLive });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get active buslives
+app.get('/api/buslives', async (req, res) => {
+  try {
+    const lives = await BusLive.find({ isActive: true }).populate('vehicle route');
+    res.json({ success: true, lives });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get livelocations for a vehicle (latest N)
+app.get('/api/livelocations/:vehicleId', async (req, res) => {
+  try {
+    const vehicleId = req.params.vehicleId;
+    const limit = parseInt(req.query.limit || '50', 10);
+    const locations = await LiveLocation.find({ vehicle: vehicleId }).sort({ createdAt: -1 }).limit(limit);
+    res.json({ success: true, locations });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------- SOCKET.IO SETUP -----------------
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
@@ -199,41 +345,16 @@ const io = new Server(server, {
   }
 });
 
-// Jab location update hoti hai tab sabko batao
-app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
-
-  const { lat, lng, bearing } = req.body;
-  if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
-
-  const vehicle = await Vehicle.findOneAndUpdate(
-    { number: req.params.number },
-    { 
-      currentLocation: { lat, lng },
-      $set: { 'currentLocation.bearing': bearing || 0 }
-    },
-    { new: true }
-  );
-
-  if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
-
-  // YE LINE SABSE ZAROORI HAI – SAB PASSENGERS KO LIVE LOCATION BHEJO!!!
-  io.to(vehicle._id.toString()).emit('locationUpdate', {
-    lat,
-    lng,
-    bearing: bearing || 0
-  });
-
-  res.json({ success: true, message: "Location updated" });
-});
-
-// Socket connection
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
 
   socket.on('joinVehicle', (vehicleId) => {
     socket.join(vehicleId);
-    console.log(`Client joined vehicle: ${vehicleId}`);
+    console.log(`Client joined vehicle: ${vehicleId} (${socket.id})`);
+  });
+
+  socket.on('leaveVehicle', (vehicleId) => {
+    socket.leave(vehicleId);
   });
 
   socket.on('disconnect', () => {
@@ -241,12 +362,66 @@ io.on('connection', (socket) => {
   });
 });
 
-// app.listen ki jagah server.listen karo
+// ----------------- LOCATION UPDATE (driver) -----------------
+// This endpoint updates Vehicle.currentLocation, creates LiveLocation entry,
+// updates BusLive.lastUpdated (if exists) and emits socket to vehicle room.
+app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
+
+    const { lat, lng, bearing, speed } = req.body;
+    if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
+
+    const vehicle = await Vehicle.findOneAndUpdate(
+      { number: req.params.number },
+      { 
+        currentLocation: { lat, lng, bearing: bearing || 0, updatedAt: new Date() }
+      },
+      { new: true }
+    );
+
+    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
+
+    // create live location history
+    await LiveLocation.create({
+      vehicle: vehicle._id,
+      lat,
+      lng,
+      bearing: bearing || 0
+    });
+
+    // update active BusLive (if any)
+    const busLive = await BusLive.findOneAndUpdate(
+      { vehicle: vehicle._id, isActive: true },
+      { lastUpdated: new Date(), bearing: bearing || 0, speed: speed || null },
+      { new: true }
+    );
+
+    // emit to passengers in that vehicle room
+    io.to(vehicle._id.toString()).emit('locationUpdate', {
+      lat, lng, bearing: bearing || 0, vehicleId: vehicle._id.toString(), timestamp: new Date()
+    });
+
+    res.json({ success: true, message: "Location updated" });
+  } catch (err) {
+    console.error("Location update error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// End trip
+app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
+  try {
+    const vehicle = await Vehicle.findOneAndUpdate({ number: req.params.number }, { isActive: false, currentLocation: null }, { new: true });
+    // mark buslive inactive
+    await BusLive.updateMany({ vehicle: vehicle._id, isActive: true }, { isActive: false });
+    res.json({ success: true, message: "Trip ended" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------- START SERVER -----------------
 server.listen(PORT, () => {
   console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
-});
-// Optional: End trip
-app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
-  await Vehicle.updateOne({ number: req.params.number }, { isActive: false, currentLocation: null });
-  res.json({ success: true, message: "Trip ended" });
 });
