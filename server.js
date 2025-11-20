@@ -353,26 +353,32 @@ io.on('connection', (socket) => {
 // saves history (LiveLocation), updates BusLive lastUpdated and emits socket.
 app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Unauthorized" });
+    if (req.user.role !== 'driver')
+      return res.status(403).json({ success: false, error: "Unauthorized" });
 
     const { lat, lng, bearing, speed } = req.body;
-    if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
+    if (lat == null || lng == null)
+      return res.status(400).json({ success: false, error: "lat & lng required" });
 
-    // decode the incoming param (handles spaces, special chars)
-    const vehicleNumber = decodeURIComponent(req.params.number);
+    const vehicleNumber = decodeURIComponent(req.params.number).trim();
 
-    // update vehicle current location
     const vehicle = await Vehicle.findOneAndUpdate(
-      { number: vehicleNumber },
+      { number: { $regex: new RegExp(`^${vehicleNumber}$`, "i") } },
       {
-        currentLocation: { lat, lng, bearing: bearing || 0, updatedAt: new Date() }
+        currentLocation: {
+          lat,
+          lng,
+          bearing: bearing || 0,
+          updatedAt: new Date()
+        },
+        isActive: true
       },
       { new: true }
     );
 
-    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
+    if (!vehicle)
+      return res.status(404).json({ success: false, error: "Bus not found" });
 
-    // create live location history
     await LiveLocation.create({
       vehicle: vehicle._id,
       lat,
@@ -380,24 +386,32 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
       bearing: bearing || 0
     });
 
-    // update active BusLive (if exists)
     await BusLive.findOneAndUpdate(
       { vehicle: vehicle._id, isActive: true },
-      { lastUpdated: new Date(), bearing: bearing || 0, speed: speed || null },
-      { new: true }
+      {
+        lastUpdated: new Date(),
+        bearing: bearing || 0,
+        speed: speed || null
+      }
     );
 
-    // emit to passengers in that vehicle room
     io.to(vehicle._id.toString()).emit('locationUpdate', {
-      lat, lng, bearing: bearing || 0, vehicleId: vehicle._id.toString(), timestamp: new Date()
+      lat,
+      lng,
+      bearing: bearing || 0,
+      vehicleId: vehicle._id.toString(),
+      timestamp: new Date()
     });
 
     res.json({ success: true, message: "Location updated" });
+
   } catch (err) {
     console.error("Location update error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+
 
 // End trip
 app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
