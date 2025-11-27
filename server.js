@@ -432,56 +432,6 @@ server.listen(PORT, () => {
   console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
 });
 // SIMPLE LOCATION UPDATE ENDPOINT
-app.post('/api/location/update', authenticateToken, async (req, res) => {
-  try {
-    const { vehicleId, lat, lng, bearing, speed } = req.body;
 
-    if (!vehicleId || lat == null || lng == null) {
-      return res.status(400).json({ success: false, error: "vehicleId, lat, lng required" });
-    }
 
-    const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) {
-      return res.status(404).json({ success: false, error: "Vehicle not found" });
-    }
 
-    // Update main vehicle status
-    vehicle.currentLocation = {
-      lat,
-      lng,
-      bearing: bearing || 0,
-      updatedAt: new Date()
-    };
-    vehicle.isActive = true;
-    await vehicle.save();
-
-    // Insert into LiveLocation history
-    await LiveLocation.create({
-      vehicle: vehicleId,
-      lat,
-      lng,
-      bearing: bearing || 0
-    });
-
-    // Update BusLive
-    await BusLive.findOneAndUpdate(
-      { vehicle: vehicleId, isActive: true },
-      { lastUpdated: new Date(), speed: speed || null }
-    );
-
-    // Send to socket clients
-    io.to(vehicleId.toString()).emit('locationUpdate', {
-      lat,
-      lng,
-      bearing,
-      vehicleId,
-      timestamp: new Date()
-    });
-
-    res.json({ success: true, message: "Location updated (simple)" });
-
-  } catch (err) {
-    console.error("Simple location update error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
