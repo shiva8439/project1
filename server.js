@@ -381,6 +381,7 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
 
     await LiveLocation.create({
       vehicle: vehicle._id,
+      busNumber: vehicle.number,
       lat,
       lng,
       bearing: bearing || 0
@@ -432,6 +433,3 @@ server.listen(PORT, () => {
   console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
 });
 // SIMPLE LOCATION UPDATE ENDPOINT
-
-
-
