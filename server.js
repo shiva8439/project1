@@ -136,6 +136,26 @@ app.post('/api/signup', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET CURRENT LOGGED-IN USER (AUTO LOGIN SUPPORT)
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) {
+      return res.status(401).json({ success: false, error: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        email: user.email,
+        role: user.role,
+        name: user.name
+      }
+    });
+  } catch (err) {
+    res.status(401).json({ success: false, error: "Invalid token" });
+  }
+});
 
 // LOGIN
 app.post('/api/login', async (req, res) => {
