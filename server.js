@@ -241,6 +241,33 @@ app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => 
   }
 });
 
+// DRIVER: GET MY VEHICLE (FIX vehicleId vs busNumber)
+app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ success: false, error: "Only drivers allowed" });
+    }
+
+    const vehicle = await Vehicle.findOne({ driver: req.user.userId });
+
+    if (!vehicle) {
+      return res.status(404).json({ success: false, error: "No vehicle registered" });
+    }
+
+    res.json({
+      success: true,
+      vehicle: {
+        _id: vehicle._id,        // ✅ vehicleId (socket room)
+        number: vehicle.number,  // ✅ busNumber (HTTP)
+        from: vehicle.from,
+        to: vehicle.to
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ----------------- ROUTES & STOPS -----------------
 // Create a stop
 app.post('/api/stops', authenticateToken, async (req, res) => {
