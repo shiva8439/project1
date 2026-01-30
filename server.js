@@ -79,6 +79,7 @@ const BusLive = mongoose.model('BusLive', busLiveSchema);
 
 const liveLocationSchema = new mongoose.Schema({
   vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
+  busNumber: { type: String, required: true },
   lat: { type: Number, required: true },
   lng: { type: Number, required: true },
   bearing: { type: Number, default: 0 },
@@ -428,6 +429,7 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
 
     await LiveLocation.create({
       vehicle: vehicle._id,
+      busNumber: vehicle.number,
       lat,
       lng,
       bearing: bearing || 0
