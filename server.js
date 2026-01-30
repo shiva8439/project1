@@ -449,6 +449,7 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
       lng,
       bearing: bearing || 0,
       vehicleId: vehicle._id.toString(),
+      busNumber: vehicle.number,
       timestamp: new Date()
     });
 
@@ -481,3 +482,4 @@ server.listen(PORT, () => {
   console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
 });
 // SIMPLE LOCATION UPDATE ENDPOINT
+
