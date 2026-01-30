@@ -428,7 +428,6 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
 
     await LiveLocation.create({
       vehicle: vehicle._id,
-      busNumber: vehicle.number,
       lat,
       lng,
       bearing: bearing || 0
