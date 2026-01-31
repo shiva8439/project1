@@ -90,7 +90,9 @@ const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
 
 // ----------------- Auth -----------------
 // ----------------- Auth -----------------
-const JWT_SECRET = process.env.JWT_SECRET || 'swiftride-secret-2025';
+
+
+const JWT_SECRET = process.env.JWT_SECRET || "swiftride-secret-2025";
 
 const authenticateToken = (req, res, next) => {
   try {
@@ -116,9 +118,14 @@ const authenticateToken = (req, res, next) => {
       next();
     });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 };
+
+module.exports = authenticateToken;
 
 
 // ----------------- Basic Routes -----------------
