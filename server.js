@@ -89,15 +89,29 @@ liveLocationSchema.index({ vehicle: 1, createdAt: -1 }); // efficient queries
 const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
 
 // ----------------- Auth -----------------
+// ----------------- Auth -----------------
 const JWT_SECRET = process.env.JWT_SECRET || 'swiftride-secret-2025';
 
 const authenticateToken = (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ success: false, error: "Token required" });
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization token missing"
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
-      if (err) return res.status(403).json({ success: false, error: "Invalid token" });
+      if (err) {
+        return res.status(403).json({
+          success: false,
+          error: "Invalid token"
+        });
+      }
       req.user = user;
       next();
     });
@@ -105,6 +119,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 // ----------------- Basic Routes -----------------
 app.get('/', (req, res) => {
@@ -399,67 +414,66 @@ io.on('connection', (socket) => {
 // ----------------- LOCATION UPDATE (driver) -----------------
 // SINGLE route (no duplicates). This updates vehicle.currentLocation,
 // saves history (LiveLocation), updates BusLive lastUpdated and emits socket.
+// DRIVER: Update location (real-time)
 app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'driver')
-      return res.status(403).json({ success: false, error: "Unauthorized" });
+    // 1️⃣ Only drivers allowed
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ success: false, error: "Only drivers allowed" });
+    }
 
-    const { lat, lng, bearing, speed } = req.body;
-    if (lat == null || lng == null)
+    const { lat, lng, bearing = 0, speed = null } = req.body;
+    if (lat == null || lng == null) {
       return res.status(400).json({ success: false, error: "lat & lng required" });
+    }
 
     const vehicleNumber = decodeURIComponent(req.params.number).trim();
 
+    // 2️⃣ Update vehicle's current location
     const vehicle = await Vehicle.findOneAndUpdate(
       { number: { $regex: new RegExp(`^${vehicleNumber}$`, "i") } },
       {
-        currentLocation: {
-          lat,
-          lng,
-          bearing: bearing || 0,
-          updatedAt: new Date()
-        },
+        currentLocation: { lat, lng, bearing, updatedAt: new Date() },
         isActive: true
       },
       { new: true }
     );
 
-    if (!vehicle)
-      return res.status(404).json({ success: false, error: "Bus not found" });
+    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
 
+    // 3️⃣ Save location history
     await LiveLocation.create({
       vehicle: vehicle._id,
       busNumber: vehicle.number,
       lat,
       lng,
-      bearing: bearing || 0
+      bearing
     });
 
+    // 4️⃣ Update active BusLive (speed, bearing)
     await BusLive.findOneAndUpdate(
       { vehicle: vehicle._id, isActive: true },
-      {
-        lastUpdated: new Date(),
-        bearing: bearing || 0,
-        speed: speed || null
-      }
+      { lastUpdated: new Date(), speed, bearing }
     );
 
+    // 5️⃣ Emit to all passengers in this vehicle's room
     io.to(vehicle._id.toString()).emit('locationUpdate', {
       lat,
       lng,
-      bearing: bearing || 0,
+      bearing,
+      speed,
       vehicleId: vehicle._id.toString(),
       busNumber: vehicle.number,
       timestamp: new Date()
     });
 
-    res.json({ success: true, message: "Location updated" });
-
+    res.json({ success: true, message: "Location updated and broadcasted" });
   } catch (err) {
     console.error("Location update error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 
 
@@ -482,4 +496,3 @@ server.listen(PORT, () => {
   console.log(`SwiftRide Backend + Socket.IO Running on http://localhost:${PORT}`);
 });
 // SIMPLE LOCATION UPDATE ENDPOINT
-
