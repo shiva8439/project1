@@ -422,21 +422,20 @@ io.on('connection', (socket) => {
 // SINGLE route (no duplicates). This updates vehicle.currentLocation,
 // saves history (LiveLocation), updates BusLive lastUpdated and emits socket.
 // DRIVER: Update location (real-time)
+// ... other code above ...
+
+// ----------------- LOCATION UPDATE (driver) -----------------
+// DRIVER: Update location (real-time)
 app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   try {
-    // 1️⃣ Only drivers allowed
     if (req.user.role !== 'driver') {
       return res.status(403).json({ success: false, error: "Only drivers allowed" });
     }
-
     const { lat, lng, bearing = 0, speed = null } = req.body;
     if (lat == null || lng == null) {
       return res.status(400).json({ success: false, error: "lat & lng required" });
     }
-
     const vehicleNumber = decodeURIComponent(req.params.number).trim();
-
-    // 2️⃣ Update vehicle's current location
     const vehicle = await Vehicle.findOneAndUpdate(
       { number: { $regex: new RegExp(`^${vehicleNumber}$`, "i") } },
       {
@@ -445,35 +444,36 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
       },
       { new: true }
     );
-
     if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
-
-    // 3️⃣ Save location history
-    await LiveLocation.create({
-      vehicle: vehicle._id,
-      busNumber: vehicle.number,
-      lat,
-      lng,
-      bearing
-    });
-
-    // 4️⃣ Update active BusLive (speed, bearing)
+    
+    // ── Fix duplicate key ──
+    await LiveLocation.findOneAndUpdate(
+      { busNumber: vehicle.number },
+      {
+        $set: {
+          vehicle: vehicle._id,
+          lat,
+          lng,
+          bearing,
+          updatedAt: new Date() // or createdAt if you keep name
+        }
+      },
+      { upsert: true }
+    );
+    
+    // Update BusLive if needed
     await BusLive.findOneAndUpdate(
       { vehicle: vehicle._id, isActive: true },
       { lastUpdated: new Date(), speed, bearing }
     );
-
-    // 5️⃣ Emit to all passengers in this vehicle's room
+    
+    // Emit clean payload
     io.to(vehicle._id.toString()).emit('locationUpdate', {
       lat,
       lng,
-      bearing,
-      speed,
-      vehicleId: vehicle._id.toString(),
-      busNumber: vehicle.number,
-      timestamp: new Date()
+      bearing
     });
-
+    
     res.json({ success: true, message: "Location updated and broadcasted" });
   } catch (err) {
     console.error("Location update error:", err);
@@ -481,6 +481,7 @@ app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   }
 });
 
+// ... rest of your code (end trip, server.listen, etc.)
 
 
 
