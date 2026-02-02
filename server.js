@@ -426,7 +426,7 @@ io.on('connection', (socket) => {
 
 // ----------------- LOCATION UPDATE (driver) -----------------
 // DRIVER: Update location (real-time)
-app.put('/vehicles/:vehicleId/location', authenticateToken, async (req, res) => {
+app.put('/vehicles/:number/location', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') {
       return res.status(403).json({ success: false, error: "Only drivers allowed" });
@@ -435,28 +435,32 @@ app.put('/vehicles/:vehicleId/location', authenticateToken, async (req, res) => 
     if (lat == null || lng == null) {
       return res.status(400).json({ success: false, error: "lat & lng required" });
     }
-    const vehicleId = req.params.vehicleId;
-
-const vehicle = await Vehicle.findByIdAndUpdate(
-  vehicleId,
-  {
-    currentLocation: { lat, lng, bearing, updatedAt: new Date() },
-    isActive: true
-  },
-  { new: true }
-);
-
+    const vehicleNumber = decodeURIComponent(req.params.number).trim();
+    const vehicle = await Vehicle.findOneAndUpdate(
+      { number: { $regex: new RegExp(`^${vehicleNumber}$`, "i") } },
+      {
+        currentLocation: { lat, lng, bearing, updatedAt: new Date() },
+        isActive: true
+      },
+      { new: true }
+    );
     if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
     
     // ── Fix duplicate key ──
-    await LiveLocation.create({
-  vehicle: vehicle._id,
-  busNumber: vehicle.number,
-  lat,
-  lng,
-  bearing
-});
-
+    await LiveLocation.findOneAndUpdate(
+      { busNumber: vehicle.number },
+      {
+        $set: {
+          vehicle: vehicle._id,
+          lat,
+          lng,
+          bearing,
+          updatedAt: new Date() // or createdAt if you keep name
+        }
+      },
+      { upsert: true }
+    );
+    
     // Update BusLive if needed
     await BusLive.findOneAndUpdate(
       { vehicle: vehicle._id, isActive: true },
@@ -482,30 +486,14 @@ const vehicle = await Vehicle.findByIdAndUpdate(
 
 
 // End trip
-app.put('/vehicles/:vehicleId/deactivate', authenticateToken, async (req, res) => {
+app.put('/vehicles/:number/deactivate', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'driver') {
-      return res.status(403).json({ success: false, error: "Only drivers allowed" });
+    const vehicleNumber = decodeURIComponent(req.params.number);
+    const vehicle = await Vehicle.findOneAndUpdate({ number: vehicleNumber }, { isActive: false, currentLocation: null }, { new: true });
+    if (vehicle) {
+      await BusLive.updateMany({ vehicle: vehicle._id, isActive: true }, { isActive: false });
     }
-
-    const vehicleId = req.params.vehicleId;
-
-    const vehicle = await Vehicle.findOneAndUpdate(
-  { number: vehicleId },   // use number instead of _id
-  { currentLocation: { lat, lng, bearing, updatedAt: new Date() }, isActive: true },
-  { new: true }
-);
-
-    if (!vehicle) {
-      return res.status(404).json({ success: false, error: "Vehicle not found" });
-    }
-
-    await BusLive.updateMany(
-      { vehicle: vehicle._id, isActive: true },
-      { isActive: false }
-    );
-
-    res.json({ success: true, message: "Trip ended successfully" });
+    res.json({ success: true, message: "Trip ended" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
