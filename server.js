@@ -491,16 +491,10 @@ app.put('/vehicles/:vehicleId/deactivate', authenticateToken, async (req, res) =
     const vehicleId = req.params.vehicleId;
 
     const vehicle = await Vehicle.findOneAndUpdate(
-      {
-        _id: vehicleId,
-        driver: req.user.userId   // ✅ same driver check
-      },
-      {
-        isActive: false,
-        currentLocation: null
-      },
-      { new: true }
-    );
+  { number: vehicleId },   // use number instead of _id
+  { currentLocation: { lat, lng, bearing, updatedAt: new Date() }, isActive: true },
+  { new: true }
+);
 
     if (!vehicle) {
       return res.status(404).json({ success: false, error: "Vehicle not found" });
