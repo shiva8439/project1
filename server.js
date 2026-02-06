@@ -1,4 +1,4 @@
-// server.js - Full backend for BusI (Driver + Passenger "Where is my Train" style)
+// server.js - Full updated backend for BusI Driver App (with my-vehicle & register-vehicle)
 
 const express = require('express');
 const cors = require('cors');
@@ -29,12 +29,12 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/busitrack",
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch(err => console.log("MongoDB Connection Error:", err));
 
-// Models (yeh files alag se banani padengi)
-const User = require('./User');
-const Bus = require('./Bus');
-const Stop = require('./Stop');
-const Route = require('./Route');
-const LiveLocation = require('./Livelocation');
+// Models (in models folder)
+const User = require('./models/User');
+const Bus = require('./models/Bus');
+const Stop = require('./models/Stop');
+const Route = require('./models/Route');
+const LiveLocation = require('./models/LiveLocation');
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "busitrack-secret-key-2025";
@@ -54,12 +54,11 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ==================== BASIC ROUTES ====================
+// ==================== BASIC & AUTH ROUTES ====================
 app.get('/', (req, res) => {
-  res.json({ message: 'BusI Backend Running - Where is my Bus API' });
+  res.json({ message: 'BusI Driver Backend Running' });
 });
 
-// SIGNUP
 app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, role, name } = req.body;
@@ -82,7 +81,6 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-// LOGIN
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -103,12 +101,87 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ==================== PASSENGER TRACKING - "Where is my Train" style ====================
+// ==================== DRIVER ROUTES (NEW ADDED) ====================
+
+// GET MY REGISTERED VEHICLE
+app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ success: false, error: 'Only drivers allowed' });
+    }
+
+    const vehicle = await Bus.findOne({ driverId: req.user.userId })
+      .select('number driverName from to location')
+      .lean();
+
+    if (!vehicle) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'No vehicle registered for this driver' 
+      });
+    }
+
+    res.json({
+      success: true,
+      vehicle
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// REGISTER NEW VEHICLE (BUS)
+app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ success: false, error: 'Only drivers allowed' });
+    }
+
+    const { number, driverName, from, to } = req.body;
+
+    if (!number) {
+      return res.status(400).json({ success: false, error: 'Bus number is required' });
+    }
+
+    const existing = await Bus.findOne({ number: number.trim() });
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'Bus number already registered' });
+    }
+
+    const newVehicle = await Bus.create({
+      number: number.trim(),
+      driverId: req.user.userId,
+      driverName: driverName || req.user.name || 'Unknown Driver',
+      from: from || '',
+      to: to || '',
+      location: { lat: 0, lng: 0 },
+      createdAt: new Date()
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Vehicle registered successfully',
+      vehicle: {
+        _id: newVehicle._id,
+        number: newVehicle.number,
+        driverName: newVehicle.driverName,
+        from: newVehicle.from,
+        to: newVehicle.to
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==================== PASSENGER TRACKING (Where is my Train style) ====================
 app.get('/api/passenger/track/:busNumber', async (req, res) => {
   try {
     const busNumber = req.params.busNumber.trim().toUpperCase();
 
-    const bus = await Bus.findOne({ busNumber })
+    const bus = await Bus.findOne({ number: busNumber })
       .populate('route')
       .populate('stops')
       .populate('driverId', 'name');
@@ -140,7 +213,7 @@ app.get('/api/passenger/track/:busNumber', async (req, res) => {
     res.json({
       success: true,
       bus: {
-        busNumber: bus.busNumber,
+        busNumber: bus.number,
         driverName: bus.driverId?.name || 'Unknown',
         routeName: bus.route?.routeName || 'N/A',
         status,
@@ -173,45 +246,7 @@ app.get('/api/passenger/track/:busNumber', async (req, res) => {
   }
 });
 
-// ==================== DRIVER ROUTES ====================
-app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: 'Only drivers allowed' });
-
-    const vehicle = await Bus.findOne({ driverId: req.user.userId });
-    if (!vehicle) return res.status(404).json({ success: false, error: 'No vehicle registered' });
-
-    res.json({ success: true, vehicle });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: 'Only drivers allowed' });
-
-    const { number, driverName, from, to } = req.body;
-    if (!number) return res.status(400).json({ success: false, error: 'Bus number required' });
-
-    const existing = await Bus.findOne({ busNumber: number.trim() });
-    if (existing) return res.status(400).json({ success: false, error: 'Bus number already registered' });
-
-    const bus = await Bus.create({
-      busNumber: number.trim(),
-      driverId: req.user.userId,
-      driverName: driverName || 'Unknown',
-      from: from || '',
-      to: to || '',
-      location: { latitude: 0, longitude: 0 }
-    });
-
-    res.status(201).json({ success: true, vehicle: bus });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
+// ==================== DRIVER LOCATION UPDATE ====================
 app.put('/api/driver/bus/:busId/location', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: 'Only drivers allowed' });
@@ -221,7 +256,7 @@ app.put('/api/driver/bus/:busId/location', authenticateToken, async (req, res) =
 
     const bus = await Bus.findOneAndUpdate(
       { _id: req.params.busId, driverId: req.user.userId },
-      { location: { latitude: lat, longitude: lng, updatedAt: new Date() } },
+      { location: { lat, lng, updatedAt: new Date() } },
       { new: true }
     );
 
@@ -259,6 +294,3 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`BusI Backend running on port ${PORT}`);
 });
-
-
-
