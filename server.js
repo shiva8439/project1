@@ -34,7 +34,7 @@ const User = require('./User');
 const Bus = require('./Bus');
 const Stop = require('./Stop');
 const Route = require('./Route');
-const LiveLocation = require('./models/Livelocation');
+const LiveLocation = require('./Livelocation');
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || "busitrack-secret-key-2025";
@@ -259,5 +259,6 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`BusI Backend running on port ${PORT}`);
 });
+
 
 
