@@ -26,7 +26,7 @@ const User = require('./User');
 const Stop = require('./Stop');
 const Route = require('./Route');
 const Bus = require('./Bus');
-const LiveLocation = require('./LiveLocation');
+const LiveLocation = require('./Livelocation');
 const Ride = require('./Ride');
 
 
@@ -775,3 +775,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`College Bus Tracker Backend + Socket.IO Running on port ${PORT}`);
 });
+
