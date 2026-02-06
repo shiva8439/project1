@@ -21,69 +21,13 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/swiftride",
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log("MongoDB Error:", err));
 
-// ----------------- Schemas / Models -----------------
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  name: { type: String },
-  role: { type: String, enum: ['driver', 'passenger'], default: 'passenger' }
-});
-const User = mongoose.model('User', userSchema);
-
-const vehicleSchema = new mongoose.Schema({
-  number: { type: String, required: true, unique: true },
-  driverName: { type: String, required: true },
-  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  from: String,
-  to: String,
-  currentLocation: {
-    lat: Number,
-    lng: Number,
-    bearing: { type: Number, default: 0 },
-    updatedAt: Date
-  },
-  isActive: { type: Boolean, default: true }
-});
-const Vehicle = mongoose.model('Vehicle', vehicleSchema);
-
-const stopSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
-const Stop = mongoose.model('Stop', stopSchema);
-
-const routeSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  from: String,
-  to: String,
-  stops: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Stop' }],
-  createdAt: { type: Date, default: Date.now }
-});
-const RouteModel = mongoose.model('Route', routeSchema);
-
-const busLiveSchema = new mongoose.Schema({
-  vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
-  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
-  driverName: String,
-  startedAt: { type: Date, default: Date.now },
-  lastUpdated: { type: Date, default: Date.now },
-  isActive: { type: Boolean, default: true },
-  speed: Number,
-  bearing: Number
-});
-const BusLive = mongoose.model('BusLive', busLiveSchema);
-
-const liveLocationSchema = new mongoose.Schema({
-  vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
-  busNumber: { type: String, required: true },
-  lat: { type: Number, required: true },
-  lng: { type: Number, required: true },
-  bearing: { type: Number, default: 0 },
-  updatedAt: { type: Date, default: Date.now } // latest location ke liye
-});
-const LiveLocation = mongoose.model('LiveLocation', liveLocationSchema);
+// ----------------- Import Models -----------------
+const User = require('./models/User');
+const Stop = require('./models/Stop');
+const Route = require('./models/Route');
+const Bus = require('./models/Bus');
+const LiveLocation = require('./models/Livelocation');
+const Ride = require('./models/Ride');
 
 // ----------------- JWT Auth -----------------
 const JWT_SECRET = process.env.JWT_SECRET || "swiftride-secret-2025";
@@ -161,25 +105,26 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ----------------- Vehicle Routes -----------------
+// ----------------- Bus Routes -----------------
 // Passenger: Bus number se search (no auth)
-app.get('/vehicles/search', async (req, res) => {
+app.get('/api/buses/search', async (req, res) => {
   try {
     const { number } = req.query;
     if (!number) return res.status(400).json({ success: false, error: "Bus number required" });
 
-    const vehicles = await Vehicle.find({
-      number: { $regex: new RegExp(`^${number.trim()}$`, 'i') },
-      isActive: true
-    }).limit(5);
+    const buses = await Bus.find({
+      busNumber: { $regex: new RegExp(`^${number.trim()}$`, 'i') }
+    }).populate('driverId', 'name email').populate('route');
 
     res.json({
       success: true,
-      vehicles: vehicles.map(v => ({
-        _id: v._id.toString(),
-        number: v.number,
-        driverName: v.driverName,
-        currentLocation: v.currentLocation || { lat: null, lng: null }
+      buses: buses.map(bus => ({
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops
       }))
     });
   } catch (err) {
@@ -187,80 +132,41 @@ app.get('/vehicles/search', async (req, res) => {
   }
 });
 
-// GET ALL ACTIVE BUSES (for list if needed)
-app.get('/vehicles', async (req, res) => {
+// GET ALL BUSES
+app.get('/api/buses', async (req, res) => {
   try {
-    const vehicles = await Vehicle.find({ isActive: true });
-    res.json(vehicles.map(v => ({
-      _id: v._id.toString(),
-      number: v.number,
-      driverName: v.driverName,
-      currentLocation: v.currentLocation || { lat: null, lng: null }
-    })));
+    const buses = await Bus.find().populate('driverId', 'name email').populate('route');
+    res.json({
+      success: true,
+      buses: buses.map(bus => ({
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops
+      }))
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // GET SINGLE BUS by id
-app.get('/vehicles/:id', async (req, res) => {
+app.get('/api/buses/:id', async (req, res) => {
   try {
-    const vehicle = await Vehicle.findById(req.params.id);
-    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found" });
-
-    res.json({
-      _id: vehicle._id.toString(),
-      number: vehicle.number,
-      driverName: vehicle.driverName,
-      currentLocation: vehicle.currentLocation || { lat: null, lng: null }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// DRIVER: REGISTER VEHICLE
-app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
-
-    const { number, driverName, from, to } = req.body;
-    if (!number || !driverName) return res.status(400).json({ success: false, error: "Bus number & driver name required" });
-
-    const exists = await Vehicle.findOne({ number });
-    if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
-
-    const vehicle = await Vehicle.create({
-      number,
-      driverName,
-      driver: req.user.userId,
-      from,
-      to,
-      isActive: true
-    });
-
-    res.json({ success: true, vehicle: { _id: vehicle._id.toString(), number } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// DRIVER: GET MY VEHICLE (returns _id)
-app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
-
-    const vehicle = await Vehicle.findOne({ driver: req.user.userId });
-    if (!vehicle) return res.status(404).json({ success: false, error: "No vehicle registered" });
+    const bus = await Bus.findById(req.params.id).populate('driverId', 'name email').populate('route');
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found" });
 
     res.json({
       success: true,
-      vehicle: {
-        _id: vehicle._id.toString(),
-        number: vehicle.number,
-        driverName: vehicle.driverName,
-        from: vehicle.from,
-        to: vehicle.to
+      bus: {
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops
       }
     });
   } catch (err) {
@@ -268,77 +174,110 @@ app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
   }
 });
 
-// DRIVER: UPDATE LOCATION (by vehicle _id)
-app.put('/vehicles/:vehicleId/location', authenticateToken, async (req, res) => {
+// DRIVER: REGISTER BUS
+app.post('/api/driver/register-bus', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
 
-    const { lat, lng, bearing = 0, speed = null } = req.body;
-    if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
+    const { busNumber, route, stops } = req.body;
+    if (!busNumber || !route) return res.status(400).json({ success: false, error: "Bus number & route required" });
 
-    const vehicleId = req.params.vehicleId;
+    const exists = await Bus.findOne({ busNumber });
+    if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
+
+    const bus = await Bus.create({
+      busNumber,
+      driverId: req.user.userId,
+      route,
+      stops: stops || [],
+      location: { latitude: 0, longitude: 0 }
+    });
+
+    const populatedBus = await Bus.findById(bus._id).populate('driverId', 'name email').populate('route');
+
+    res.json({ 
+      success: true, 
+      bus: {
+        _id: populatedBus._id.toString(),
+        busNumber: populatedBus.busNumber,
+        driver: populatedBus.driverId,
+        route: populatedBus.route,
+        stops: populatedBus.stops
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: GET MY BUS
+app.get('/api/driver/my-bus', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const bus = await Bus.findOne({ driverId: req.user.userId }).populate('route');
+    if (!bus) return res.status(404).json({ success: false, error: "No bus registered" });
+
+    res.json({
+      success: true,
+      bus: {
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: UPDATE BUS LOCATION
+app.put('/api/buses/:busId/location', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { latitude, longitude } = req.body;
+    if (latitude == null || longitude == null) return res.status(400).json({ success: false, error: "latitude & longitude required" });
+
+    const busId = req.params.busId;
 
     // Ownership check
-    const vehicle = await Vehicle.findOne({ _id: vehicleId, driver: req.user.userId });
-    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+    const bus = await Bus.findOne({ _id: busId, driverId: req.user.userId });
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
 
-    // Update current location
-    vehicle.currentLocation = { lat, lng, bearing, updatedAt: new Date() };
-    vehicle.isActive = true;
-    await vehicle.save();
+    // Update location
+    bus.location.latitude = latitude;
+    bus.location.longitude = longitude;
+    bus.location.updatedAt = new Date();
+    await bus.save();
 
-    // Save latest location (upsert - no duplicate key error)
+    // Save to live locations
     await LiveLocation.findOneAndUpdate(
-      { vehicle: vehicle._id },
-      { lat, lng, bearing, busNumber: vehicle.number, updatedAt: new Date() },
+      { busId: bus._id },
+      { 
+        busId: bus._id,
+        busNumber: bus.busNumber,
+        latitude,
+        longitude,
+        updatedAt: new Date()
+      },
       { upsert: true, new: true }
     );
 
-    // Update BusLive if active trip
-    await BusLive.findOneAndUpdate(
-      { vehicle: vehicle._id, isActive: true },
-      { lastUpdated: new Date(), speed, bearing }
-    );
-
-    // Broadcast to passengers in this vehicle room
-    io.to(vehicle._id.toString()).emit('locationUpdate', {
-      lat,
-      lng,
-      bearing,
-      speed: speed || 0,
+    // Broadcast to passengers tracking this bus
+    io.to(bus._id.toString()).emit('busLocationUpdate', {
+      busId: bus._id.toString(),
+      busNumber: bus.busNumber,
+      latitude,
+      longitude,
       timestamp: new Date().toISOString()
     });
 
     res.json({ success: true, message: "Location updated and broadcasted" });
   } catch (err) {
     console.error("Location update error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// DRIVER: END TRIP / DEACTIVATE BUS
-app.put('/vehicles/:vehicleId/deactivate', authenticateToken, async (req, res) => {
-  try {
-    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
-
-    const vehicleId = req.params.vehicleId;
-
-    const vehicle = await Vehicle.findOne({ _id: vehicleId, driver: req.user.userId });
-    if (!vehicle) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
-
-    vehicle.isActive = false;
-    vehicle.currentLocation = null;
-    await vehicle.save();
-
-    await BusLive.updateMany(
-      { vehicle: vehicle._id, isActive: true },
-      { isActive: false }
-    );
-
-    io.to(vehicle._id.toString()).emit('tripEnded', { message: "Trip has ended" });
-
-    res.json({ success: true, message: "Trip ended successfully" });
-  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -398,21 +337,19 @@ app.post('/api/stops', authenticateToken, async (req, res) => {
 // GET ALL ROUTES WITH STOPS
 app.get('/api/routes', async (req, res) => {
   try {
-    const routes = await RouteModel.find().populate('stops').sort({ createdAt: 1 });
+    const routes = await Route.find().populate('stops').sort({ createdAt: 1 });
     res.json({
       success: true,
       routes: routes.map(route => ({
         _id: route._id.toString(),
-        name: route.name,
-        from: route.from,
-        to: route.to,
+        routeName: route.routeName,
+        routeNumber: route.routeNumber,
         stops: route.stops.map(stop => ({
           _id: stop._id.toString(),
           name: stop.name,
           lat: stop.lat,
           lng: stop.lng
-        })),
-        createdAt: route.createdAt
+        }))
       }))
     });
   } catch (err) {
@@ -425,10 +362,14 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
 
-    const { name, from, to, stopIds } = req.body;
-    if (!name || !from || !to) {
-      return res.status(400).json({ success: false, error: "Name, from & to required" });
+    const { routeName, routeNumber, stopIds } = req.body;
+    if (!routeName || !routeNumber) {
+      return res.status(400).json({ success: false, error: "Route name & number required" });
     }
+
+    // Check if route number already exists
+    const existingRoute = await Route.findOne({ routeNumber });
+    if (existingRoute) return res.status(400).json({ success: false, error: "Route number already exists" });
 
     // Validate stop IDs if provided
     let stops = [];
@@ -440,30 +381,367 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
       stops = validStops.map(stop => stop._id);
     }
 
-    const route = await RouteModel.create({
-      name: name.trim(),
-      from: from.trim(),
-      to: to.trim(),
+    const route = await Route.create({
+      routeName: routeName.trim(),
+      routeNumber: routeNumber.trim(),
       stops
     });
 
-    const populatedRoute = await RouteModel.findById(route._id).populate('stops');
+    const populatedRoute = await Route.findById(route._id).populate('stops');
 
     res.status(201).json({
       success: true,
       route: {
         _id: populatedRoute._id.toString(),
-        name: populatedRoute.name,
-        from: populatedRoute.from,
-        to: populatedRoute.to,
+        routeName: populatedRoute.routeName,
+        routeNumber: populatedRoute.routeNumber,
         stops: populatedRoute.stops.map(stop => ({
           _id: stop._id.toString(),
           name: stop.name,
           lat: stop.lat,
           lng: stop.lng
-        })),
-        createdAt: populatedRoute.createdAt
+        }))
       }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET ROUTE BY ID
+app.get('/api/routes/:id', async (req, res) => {
+  try {
+    const route = await Route.findById(req.params.id).populate('stops');
+    if (!route) return res.status(404).json({ success: false, error: "Route not found" });
+
+    res.json({
+      success: true,
+      route: {
+        _id: route._id.toString(),
+        routeName: route.routeName,
+        routeNumber: route.routeNumber,
+        stops: route.stops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        }))
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PASSENGER: TRACK BUS LOCATION
+app.get('/api/buses/:busId/live-location', async (req, res) => {
+  try {
+    const busId = req.params.busId;
+    
+    // Get bus details
+    const bus = await Bus.findById(busId).populate('route').populate('driverId', 'name');
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found" });
+
+    // Get latest location
+    const liveLocation = await LiveLocation.findOne({ busId }).sort({ updatedAt: -1 });
+
+    res.json({
+      success: true,
+      bus: {
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        stops: bus.stops
+      },
+      location: liveLocation || {
+        busId: bus._id,
+        busNumber: bus.busNumber,
+        latitude: bus.location.latitude,
+        longitude: bus.location.longitude,
+        updatedAt: bus.location.updatedAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PASSENGER: GET ALL BUSES ON A ROUTE
+app.get('/api/routes/:routeId/buses', async (req, res) => {
+  try {
+    const routeId = req.params.routeId;
+    
+    const buses = await Bus.find({ route: routeId })
+      .populate('driverId', 'name email')
+      .populate('route');
+
+    res.json({
+      success: true,
+      buses: buses.map(bus => ({
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PASSENGER: GET ALL ROUTES WITH BUSES AND STOPS
+app.get('/api/passenger/routes', async (req, res) => {
+  try {
+    const routes = await Route.find().populate('stops').populate({
+      path: 'buses',
+      model: 'Bus',
+      populate: {
+        path: 'driverId',
+        select: 'name email'
+      }
+    });
+
+    res.json({
+      success: true,
+      routes: routes.map(route => ({
+        _id: route._id.toString(),
+        routeName: route.routeName,
+        routeNumber: route.routeNumber,
+        stops: route.stops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        })),
+        buses: route.buses ? route.buses.map(bus => ({
+          _id: bus._id.toString(),
+          busNumber: bus.busNumber,
+          driver: bus.driverId,
+          currentStopIndex: bus.currentStopIndex,
+          isActive: bus.isActive,
+          lastStopReached: bus.lastStopReached
+        })) : []
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PASSENGER: GET BUS DETAILED TRACKING WITH CURRENT AND UPCOMING STOPS
+app.get('/api/passenger/bus/:busId/tracking', async (req, res) => {
+  try {
+    const busId = req.params.busId;
+    
+    const bus = await Bus.findById(busId)
+      .populate('route')
+      .populate('stops')
+      .populate('driverId', 'name')
+      .populate('lastStopReached', 'name lat lng');
+      
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found" });
+
+    // Get live location
+    const liveLocation = await LiveLocation.findOne({ busId }).sort({ updatedAt: -1 });
+
+    // Calculate current and upcoming stops
+    const allStops = bus.stops;
+    const currentStopIndex = bus.currentStopIndex;
+    
+    let currentStop = null;
+    let upcomingStops = [];
+    let completedStops = [];
+    
+    if (currentStopIndex >= 0 && currentStopIndex < allStops.length) {
+      currentStop = allStops[currentStopIndex];
+      upcomingStops = allStops.slice(currentStopIndex + 1);
+      completedStops = allStops.slice(0, currentStopIndex);
+    } else if (currentStopIndex === -1) {
+      upcomingStops = allStops;
+    } else {
+      completedStops = allStops;
+    }
+
+    res.json({
+      success: true,
+      bus: {
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        driver: bus.driverId,
+        route: bus.route,
+        isActive: bus.isActive,
+        lastStopReached: bus.lastStopReached
+      },
+      location: liveLocation || {
+        busId: bus._id,
+        busNumber: bus.busNumber,
+        latitude: bus.location.latitude,
+        longitude: bus.location.longitude,
+        updatedAt: bus.location.updatedAt
+      },
+      stops: {
+        all: allStops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        })),
+        current: currentStop ? {
+          _id: currentStop._id.toString(),
+          name: currentStop.name,
+          lat: currentStop.lat,
+          lng: currentStop.lng
+        } : null,
+        upcoming: upcomingStops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        })),
+        completed: completedStops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        }))
+      },
+      progress: {
+        totalStops: allStops.length,
+        completedStops: completedStops.length,
+        currentStopIndex: currentStopIndex,
+        progressPercentage: allStops.length > 0 ? (completedStops.length / allStops.length) * 100 : 0
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: UPDATE BUS STOP REACHED
+app.put('/api/driver/bus/:busId/reach-stop', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { stopIndex } = req.body;
+    const busId = req.params.busId;
+
+    if (stopIndex == null || stopIndex < 0) {
+      return res.status(400).json({ success: false, error: "Valid stop index required" });
+    }
+
+    // Ownership check
+    const bus = await Bus.findOne({ _id: busId, driverId: req.user.userId })
+      .populate('stops');
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+
+    if (stopIndex >= bus.stops.length) {
+      return res.status(400).json({ success: false, error: "Invalid stop index" });
+    }
+
+    // Update current stop
+    bus.currentStopIndex = stopIndex;
+    bus.lastStopReached = bus.stops[stopIndex]._id;
+    await bus.save();
+
+    const reachedStop = bus.stops[stopIndex];
+
+    // Broadcast to passengers
+    io.to(bus._id.toString()).emit('busReachedStop', {
+      busId: bus._id.toString(),
+      busNumber: bus.busNumber,
+      stop: {
+        _id: reachedStop._id.toString(),
+        name: reachedStop.name,
+        lat: reachedStop.lat,
+        lng: reachedStop.lng
+      },
+      stopIndex: stopIndex,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Bus stop updated",
+      currentStop: {
+        _id: reachedStop._id.toString(),
+        name: reachedStop.name,
+        lat: reachedStop.lat,
+        lng: reachedStop.lng
+      },
+      stopIndex: stopIndex
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PASSENGER: GET BUSES BY ROUTE NUMBER
+app.get('/api/passenger/route/:routeNumber/buses', async (req, res) => {
+  try {
+    const routeNumber = req.params.routeNumber;
+    
+    const route = await Route.findOne({ routeNumber }).populate('stops');
+    if (!route) return res.status(404).json({ success: false, error: "Route not found" });
+
+    const buses = await Bus.find({ route: route._id, isActive: true })
+      .populate('driverId', 'name')
+      .populate('lastStopReached', 'name')
+      .populate('stops');
+
+    res.json({
+      success: true,
+      route: {
+        _id: route._id.toString(),
+        routeName: route.routeName,
+        routeNumber: route.routeNumber,
+        stops: route.stops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        }))
+      },
+      buses: buses.map(bus => {
+        const allStops = bus.stops;
+        const currentStopIndex = bus.currentStopIndex;
+        
+        let currentStop = null;
+        let upcomingStops = [];
+        
+        if (currentStopIndex >= 0 && currentStopIndex < allStops.length) {
+          currentStop = allStops[currentStopIndex];
+          upcomingStops = allStops.slice(currentStopIndex + 1);
+        } else if (currentStopIndex === -1) {
+          upcomingStops = allStops;
+        }
+
+        return {
+          _id: bus._id.toString(),
+          busNumber: bus.busNumber,
+          driver: bus.driverId,
+          lastStopReached: bus.lastStopReached,
+          currentStop: currentStop ? {
+            _id: currentStop._id.toString(),
+            name: currentStop.name,
+            lat: currentStop.lat,
+            lng: currentStop.lng
+          } : null,
+          upcomingStops: upcomingStops.map(stop => ({
+            _id: stop._id.toString(),
+            name: stop.name,
+            lat: stop.lat,
+            lng: stop.lng
+          })),
+          progress: {
+            totalStops: allStops.length,
+            completedStops: currentStopIndex >= 0 ? currentStopIndex : 0,
+            progressPercentage: allStops.length > 0 ? ((currentStopIndex >= 0 ? currentStopIndex : 0) / allStops.length) * 100 : 0
+          }
+        };
+      })
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
