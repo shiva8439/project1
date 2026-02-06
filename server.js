@@ -343,6 +343,133 @@ app.put('/vehicles/:vehicleId/deactivate', authenticateToken, async (req, res) =
   }
 });
 
+// ----------------- Bus Stops Routes -----------------
+// GET ALL STOPS
+app.get('/api/stops', async (req, res) => {
+  try {
+    const stops = await Stop.find().sort({ createdAt: 1 });
+    res.json({
+      success: true,
+      stops: stops.map(stop => ({
+        _id: stop._id.toString(),
+        name: stop.name,
+        lat: stop.lat,
+        lng: stop.lng,
+        createdAt: stop.createdAt
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ADD NEW STOP (Driver only)
+app.post('/api/stops', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { name, lat, lng } = req.body;
+    if (!name || lat == null || lng == null) {
+      return res.status(400).json({ success: false, error: "Name, lat & lng required" });
+    }
+
+    const stop = await Stop.create({
+      name: name.trim(),
+      lat: parseFloat(lat),
+      lng: parseFloat(lng)
+    });
+
+    res.status(201).json({
+      success: true,
+      stop: {
+        _id: stop._id.toString(),
+        name: stop.name,
+        lat: stop.lat,
+        lng: stop.lng,
+        createdAt: stop.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------- Routes Management -----------------
+// GET ALL ROUTES WITH STOPS
+app.get('/api/routes', async (req, res) => {
+  try {
+    const routes = await RouteModel.find().populate('stops').sort({ createdAt: 1 });
+    res.json({
+      success: true,
+      routes: routes.map(route => ({
+        _id: route._id.toString(),
+        name: route.name,
+        from: route.from,
+        to: route.to,
+        stops: route.stops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        })),
+        createdAt: route.createdAt
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ADD NEW ROUTE WITH STOPS (Driver only)
+app.post('/api/routes', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { name, from, to, stopIds } = req.body;
+    if (!name || !from || !to) {
+      return res.status(400).json({ success: false, error: "Name, from & to required" });
+    }
+
+    // Validate stop IDs if provided
+    let stops = [];
+    if (stopIds && Array.isArray(stopIds)) {
+      const validStops = await Stop.find({ _id: { $in: stopIds } });
+      if (validStops.length !== stopIds.length) {
+        return res.status(400).json({ success: false, error: "Some stop IDs are invalid" });
+      }
+      stops = validStops.map(stop => stop._id);
+    }
+
+    const route = await RouteModel.create({
+      name: name.trim(),
+      from: from.trim(),
+      to: to.trim(),
+      stops
+    });
+
+    const populatedRoute = await RouteModel.findById(route._id).populate('stops');
+
+    res.status(201).json({
+      success: true,
+      route: {
+        _id: populatedRoute._id.toString(),
+        name: populatedRoute.name,
+        from: populatedRoute.from,
+        to: populatedRoute.to,
+        stops: populatedRoute.stops.map(stop => ({
+          _id: stop._id.toString(),
+          name: stop.name,
+          lat: stop.lat,
+          lng: stop.lng
+        })),
+        createdAt: populatedRoute.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ----------------- SOCKET.IO SETUP -----------------
 const http = require('http');
 const server = http.createServer(app);
