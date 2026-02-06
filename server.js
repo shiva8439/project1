@@ -23,11 +23,11 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/swiftride",
   .catch(err => console.log("MongoDB Error:", err));
 
 // ----------------- Import Models -----------------
-const User = require('./models/User');
-const Stop = require('./models/Stop');
-const Route = require('./models/Route');
-const Bus = require('./models/Bus');
-const LiveLocation = require('./models/Livelocation');
+const User = require('./User');
+const Stop = require('./Stop');
+const Route = require('./Route');
+const Bus = require('./Bus');
+const LiveLocation = require('./Livelocation');
 
 // ----------------- JWT Auth -----------------
 const JWT_SECRET = process.env.JWT_SECRET || "swiftride-secret-2025";
@@ -313,3 +313,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`College Bus Tracker Backend + Socket.IO Running on port ${PORT}`);
 });
+
