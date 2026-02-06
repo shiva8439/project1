@@ -26,7 +26,7 @@ const User = require('./models/User');
 const Stop = require('./models/Stop');
 const Route = require('./models/Route');
 const Bus = require('./models/Bus');
-const LiveLocation = require('./models/Livelocation');
+const LiveLocation = require('./models/LiveLocation');
 const Ride = require('./models/Ride');
 
 // ----------------- JWT Auth -----------------
