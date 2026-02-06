@@ -30,10 +30,10 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/busitrack",
   .catch(err => console.log("MongoDB Connection Error:", err));
 
 // Models (yeh files alag se banani padengi)
-const User = require('./models/User');
-const Bus = require('./models/Bus');
-const Stop = require('./models/Stop');
-const Route = require('./models/Route');
+const User = require('./User');
+const Bus = require('./Bus');
+const Stop = require('./Stop');
+const Route = require('./Route');
 const LiveLocation = require('./models/LiveLocation');
 
 // JWT Secret
@@ -259,3 +259,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`BusI Backend running on port ${PORT}`);
 });
+
