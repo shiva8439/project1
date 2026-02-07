@@ -532,6 +532,120 @@ app.get('/api/passenger/bus-stops/:busNumber', async (req, res) => {
   }
 });
 
+// DRIVER: UPDATE BUS STOP REACHED
+app.put('/api/driver/bus/:busId/reach-stop', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { stopIndex } = req.body;
+    const busId = req.params.busId;
+
+    if (stopIndex == null || stopIndex < 0) {
+      return res.status(400).json({ success: false, error: "Valid stop index required" });
+    }
+
+    const bus = await Bus.findOne({ _id: busId, driverId: req.user.userId })
+      .populate('stops');
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+
+    if (stopIndex >= bus.stops.length) {
+      return res.status(400).json({ success: false, error: "Invalid stop index" });
+    }
+
+    bus.currentStopIndex = stopIndex;
+    bus.lastStopReached = bus.stops[stopIndex]._id;
+    await bus.save();
+
+    const reachedStop = bus.stops[stopIndex];
+
+    io.to(bus._id.toString()).emit('busReachedStop', {
+      busId: bus._id.toString(),
+      busNumber: bus.busNumber,
+      stop: {
+        _id: reachedStop._id.toString(),
+        name: reachedStop.name,
+        lat: reachedStop.lat,
+        lng: reachedStop.lng
+      },
+      stopIndex: stopIndex,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Bus stop updated",
+      currentStop: {
+        _id: reachedStop._id.toString(),
+        name: reachedStop.name,
+        lat: reachedStop.lat,
+        lng: reachedStop.lng
+      },
+      stopIndex: stopIndex
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: UPDATE BUS DETAILS
+app.put('/api/driver/bus/:busId/update', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { busNumber, route, stops, isActive } = req.body;
+    const busId = req.params.busId;
+
+    const bus = await Bus.findOne({ _id: busId, driverId: req.user.userId });
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+
+    if (busNumber) bus.busNumber = busNumber;
+    if (route) bus.route = route;
+    if (stops) bus.stops = stops;
+    if (isActive !== undefined) bus.isActive = isActive;
+
+    await bus.save();
+
+    const updatedBus = await Bus.findById(bus._id).populate('driverId', 'name email').populate('route');
+
+    res.json({ 
+      success: true, 
+      message: "Bus updated successfully",
+      bus: {
+        _id: updatedBus._id.toString(),
+        busNumber: updatedBus.busNumber,
+        driver: updatedBus.driverId,
+        route: updatedBus.route,
+        stops: updatedBus.stops,
+        isActive: updatedBus.isActive
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DRIVER: DELETE/DEACTIVATE BUS
+app.delete('/api/driver/bus/:busId', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const busId = req.params.busId;
+
+    const bus = await Bus.findOne({ _id: busId, driverId: req.user.userId });
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+
+    bus.isActive = false;
+    await bus.save();
+
+    res.json({ 
+      success: true, 
+      message: "Bus deactivated successfully" 
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ----------------- SOCKET.IO SETUP -----------------
 const http = require('http');
 const server = http.createServer(app);
