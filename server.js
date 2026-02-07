@@ -44,8 +44,7 @@ const Route = mongoose.model('Route', routeSchema);
 // Bus Model (with live location)
 const busSchema = new mongoose.Schema({
   busNumber: { type: String, unique: true },
-  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Link to User
-  driverName: String, // Keep for legacy
+  driverName: String,
   route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
   currentStopIndex: { type: Number, default: 0 },
   location: {
@@ -65,17 +64,6 @@ const stopSchema = new mongoose.Schema({
 });
 const Stop = mongoose.model('Stop', stopSchema);
 
-// Middleware for authentication (simple token validation, improve with JWT)
-const authMiddleware = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ success: false, error: "Unauthorized" });
-  }
-  // For demo, assume token is user._id (in production, verify JWT)
-  req.userId = authHeader.split(' ')[1].split('-').pop(); // Extract mock user id from token
-  next();
-};
-
 // ----------------- API ROUTES -----------------
 
 // ✅ AUTHENTICATION ENDPOINTS
@@ -83,6 +71,7 @@ app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
+    // Simple driver validation (in production, use proper auth)
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
@@ -90,22 +79,20 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
+    // Create/find user (simplified)
     let user = await User.findOne({ email });
     if (!user) {
       user = await User.create({
         email,
-        password, // Hash in production
+        password, // In production, hash this
         name: email.split('@')[0],
         role: 'driver'
       });
     }
 
-    // Simple token: "simple-token-userId"
-    const token = "simple-token-" + user._id;
-
     res.json({
       success: true,
-      token,
+      token: "simple-token-" + Date.now(), // Simple token
       user: {
         _id: user._id,
         email: user.email,
@@ -159,20 +146,22 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', authMiddleware, async (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
-    if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+    // Simple token validation (in production, use JWT)
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: "Invalid token" });
     }
 
+    // For demo, return a mock user
     res.json({
       success: true,
       user: {
-        _id: user._id,
-        email: user.email,
-        name: user.name,
-        role: user.role
+        _id: "mock-user-id",
+        email: "driver@example.com",
+        name: "Driver",
+        role: "driver"
       }
     });
   } catch (err) {
@@ -181,25 +170,38 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
 });
 
 // ✅ DRIVER VEHICLE ENDPOINTS
-app.get('/api/driver/my-vehicles', authMiddleware, async (req, res) => {
+app.get('/api/driver/my-vehicle', async (req, res) => {
   try {
-    const buses = await Bus.find({ driver: req.userId }).populate('route');
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Get first bus for demo
+    const bus = await Bus.findOne().populate('route');
     
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "No vehicle found" 
+      });
+    }
+
     res.json({
       success: true,
-      vehicles: buses.map(bus => ({
+      vehicle: {
         _id: bus._id,
         number: bus.busNumber,
         driverName: bus.driverName,
         route: bus.route
-      }))
+      }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.post('/api/driver/register-vehicle', authMiddleware, async (req, res) => {
+app.post('/api/driver/register-vehicle', async (req, res) => {
   try {
     const { number, driverName, from, to, busNumber, route } = req.body;
     
@@ -214,14 +216,13 @@ app.post('/api/driver/register-vehicle', authMiddleware, async (req, res) => {
     const routeStops = [from || "Start", to || "End"];
     const newRoute = await Route.create({
       routeName: route || `${from} - ${to}`,
-      routeNumber: `ROUTE-${Date.now()}`,
+      routeNumber: `ROUTE-${Date.now()}`, // Generate unique route number
       stops: routeStops
     });
 
-    // Create bus linked to driver
+    // Create bus
     const bus = await Bus.create({
       busNumber: number,
-      driver: req.userId,
       driverName,
       route: newRoute._id,
       currentStopIndex: 0,
@@ -244,9 +245,6 @@ app.post('/api/driver/register-vehicle', authMiddleware, async (req, res) => {
       }
     });
   } catch (err) {
-    if (err.code === 11000) {
-      return res.status(400).json({ success: false, error: "Bus number already exists" });
-    }
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -315,7 +313,7 @@ app.post('/api/routes', async (req, res) => {
 });
 
 // ✅ VEHICLE LOCATION UPDATE (Driver app)
-app.put('/vehicles/:vehicleId/location', authMiddleware, async (req, res) => {
+app.put('/vehicles/:vehicleId/location', async (req, res) => {
   try {
     const { vehicleId } = req.params;
     const { lat, lng, bearing } = req.body;
@@ -329,11 +327,11 @@ app.put('/vehicles/:vehicleId/location', authMiddleware, async (req, res) => {
       });
     }
 
-    const bus = await Bus.findOne({ _id: vehicleId, driver: req.userId });
+    const bus = await Bus.findById(vehicleId);
     if (!bus) {
       return res.status(404).json({ 
         success: false, 
-        error: "Vehicle not found or not owned by you" 
+        error: "Vehicle not found" 
       });
     }
 
@@ -345,7 +343,7 @@ app.put('/vehicles/:vehicleId/location', authMiddleware, async (req, res) => {
 
     console.log(`✅ Bus ${bus.busNumber} location updated in database`);
 
-    // Emit to passengers
+    // Emit to passengers - Multiple channels
     io.emit('locationUpdate', {
       lat,
       lng,
@@ -354,6 +352,7 @@ app.put('/vehicles/:vehicleId/location', authMiddleware, async (req, res) => {
       busNumber: bus.busNumber
     });
 
+    // Also emit to bus-specific room
     io.emit(`bus-${bus.busNumber}`, {
       type: 'location_update',
       busNumber: bus.busNumber,
@@ -381,13 +380,7 @@ app.put('/vehicles/:vehicleId/location', authMiddleware, async (req, res) => {
 app.get('/vehicles/search', async (req, res) => {
   try {
     const { number } = req.query;
-    if (!number) return res.json({ success: true, vehicles: [] });
-
-    const cleanedNumber = number.trim().replace(/\s+/g, '').toLowerCase();
-
-    const bus = await Bus.findOne({
-      busNumber: { $regex: new RegExp('^' + cleanedNumber + '$', 'i') }
-    }).populate('route');
+    const bus = await Bus.findOne({ busNumber: number }).populate('route');
     
     if (!bus) {
       return res.json({ success: false, vehicles: [] });
@@ -441,14 +434,13 @@ app.get('/', (req, res) => {
 // ✅ GET ALL BUSES (For debugging)
 app.get('/debug/buses', async (req, res) => {
   try {
-    const buses = await Bus.find().populate('route').populate('driver');
+    const buses = await Bus.find().populate('route');
     
     res.json({
       success: true,
       totalBuses: buses.length,
       buses: buses.map(bus => ({
         busNumber: bus.busNumber,
-        driverId: bus.driver ? bus.driver._id : null,
         driverName: bus.driverName,
         location: bus.location,
         isActive: bus.isActive,
@@ -463,7 +455,7 @@ app.get('/debug/buses', async (req, res) => {
 // ✅ GET ALL BUSES (For selection)
 app.get('/buses', async (req, res) => {
   try {
-    const buses = await Bus.find({ isActive: true }).populate('route').populate('driver');
+    const buses = await Bus.find({ isActive: true }).populate('route');
     
     res.json({
       success: true,
@@ -525,7 +517,7 @@ app.get('/bus/track/:busNumber', async (req, res) => {
 });
 
 // ✅ DRIVER: Update live location (Phone GPS)
-app.put('/bus/location/:busNumber', authMiddleware, async (req, res) => {
+app.put('/bus/location/:busNumber', async (req, res) => {
   try {
     const { latitude, longitude, driverName } = req.body;
     
@@ -536,11 +528,11 @@ app.put('/bus/location/:busNumber', authMiddleware, async (req, res) => {
       });
     }
 
-    const bus = await Bus.findOne({ busNumber: req.params.busNumber, driver: req.userId });
+    const bus = await Bus.findOne({ busNumber: req.params.busNumber });
     if (!bus) {
       return res.status(404).json({ 
-        success: false, 
-        error: "Bus not found or not owned by you" 
+        success: false,
+        error: "Bus not found" 
       });
     }
 
@@ -585,24 +577,24 @@ app.put('/bus/location/:busNumber', authMiddleware, async (req, res) => {
 });
 
 // ✅ DRIVER: Update current stop
-app.put('/bus/stop/:busNumber', authMiddleware, async (req, res) => {
+app.put('/bus/stop/:busNumber', async (req, res) => {
   try {
     const { stopIndex } = req.body;
     
     if (stopIndex == null || stopIndex < 0) {
       return res.status(400).json({ 
-        success: false, 
+        success: false,
         error: "Valid stop index required" 
       });
     }
 
-    const bus = await Bus.findOne({ busNumber: req.params.busNumber, driver: req.userId })
+    const bus = await Bus.findOne({ busNumber: req.params.busNumber })
       .populate('route');
     
     if (!bus) {
       return res.status(404).json({ 
-        success: false, 
-        error: "Bus not found or not owned by you" 
+        success: false,
+        error: "Bus not found" 
       });
     }
 
@@ -684,3 +676,4 @@ server.listen(PORT, () => {
   console.log(`📱 Live Updates: Socket.IO connected`);
   console.log(`🔗 All Buses: http://localhost:${PORT}/buses`);
 });
+ 
