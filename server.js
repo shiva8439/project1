@@ -128,6 +128,66 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ----------------- Bus Routes -----------------
+app.get('/vehicles/search', async (req, res) => {
+  try {
+    const { number } = req.query;
+    if (!number) return res.status(400).json({ success: false, error: "Bus number required" });
+
+    const buses = await Bus.find({
+      busNumber: { $regex: new RegExp(`^${number.trim()}$`, 'i') }
+    }).populate('driverId', 'name email').populate('route');
+
+    res.json({
+      success: true,
+      vehicles: buses.map(bus => ({
+        _id: bus._id.toString(),
+        number: bus.busNumber,
+        driverName: bus.driverId?.name || 'N/A',
+        currentLocation: bus.location || { lat: bus.location.latitude, lng: bus.location.longitude }
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/vehicles', async (req, res) => {
+  try {
+    const buses = await Bus.find({ isActive: true }).populate('driverId', 'name email').populate('route');
+    res.json({
+      success: true,
+      vehicles: buses.map(bus => ({
+        _id: bus._id.toString(),
+        number: bus.busNumber,
+        driverName: bus.driverId?.name || 'N/A',
+        currentLocation: bus.location || { lat: bus.location.latitude, lng: bus.location.longitude }
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/vehicles/:id', async (req, res) => {
+  try {
+    const bus = await Bus.findById(req.params.id).populate('driverId', 'name email').populate('route');
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found" });
+
+    res.json({
+      success: true,
+      vehicle: {
+        _id: bus._id.toString(),
+        number: bus.busNumber,
+        driverName: bus.driverId?.name || 'N/A',
+        currentLocation: bus.location || { lat: bus.location.latitude, lng: bus.location.longitude },
+        route: bus.route
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/buses/search', async (req, res) => {
   try {
     const { number } = req.query;
@@ -193,6 +253,41 @@ app.get('/api/buses/:id', async (req, res) => {
   }
 });
 
+app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { busNumber, route, stops } = req.body;
+    if (!busNumber || !route) return res.status(400).json({ success: false, error: "Bus number & route required" });
+
+    const exists = await Bus.findOne({ busNumber });
+    if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
+
+    const bus = await Bus.create({
+      busNumber,
+      driverId: req.user.userId,
+      route,
+      stops: stops || [],
+      location: { latitude: 0, longitude: 0 }
+    });
+
+    const populatedBus = await Bus.findById(bus._id).populate('driverId', 'name email').populate('route');
+
+    res.json({ 
+      success: true, 
+      bus: {
+        _id: populatedBus._id.toString(),
+        busNumber: populatedBus.busNumber,
+        driver: populatedBus.driverId,
+        route: populatedBus.route,
+        stops: populatedBus.stops
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/driver/register-bus', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
@@ -228,6 +323,31 @@ app.post('/api/driver/register-bus', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/driver/my-vehicle', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const bus = await Bus.findOne({ driverId: req.user.userId }).populate('route');
+    if (!bus) return res.status(404).json({ success: false, error: "No bus registered" });
+
+    res.json({
+      success: true,
+      vehicle: {
+        _id: bus._id.toString(),
+        busNumber: bus.busNumber,
+        route: bus.route,
+        location: bus.location,
+        stops: bus.stops,
+        currentStopIndex: bus.currentStopIndex,
+        isActive: bus.isActive,
+        lastStopReached: bus.lastStopReached
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/driver/my-bus', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
@@ -245,6 +365,52 @@ app.get('/api/driver/my-bus', authenticateToken, async (req, res) => {
         stops: bus.stops
       }
     });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/vehicles/:vehicleId/location', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ success: false, error: "Only drivers allowed" });
+
+    const { lat, lng, bearing = 0, speed = null } = req.body;
+    if (lat == null || lng == null) return res.status(400).json({ success: false, error: "lat & lng required" });
+
+    const vehicleId = req.params.vehicleId;
+
+    const bus = await Bus.findOne({ _id: vehicleId, driverId: req.user.userId });
+    if (!bus) return res.status(404).json({ success: false, error: "Bus not found or not owned by you" });
+
+    bus.location.latitude = lat;
+    bus.location.longitude = lng;
+    bus.location.updatedAt = new Date();
+    await bus.save();
+
+    await LiveLocation.findOneAndUpdate(
+      { busId: bus._id },
+      { 
+        busId: bus._id,
+        busNumber: bus.busNumber,
+        latitude: lat,
+        longitude: lng,
+        bearing,
+        updatedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
+
+    io.to(bus._id.toString()).emit('locationUpdate', {
+      busId: bus._id.toString(),
+      busNumber: bus.busNumber,
+      latitude: lat,
+      longitude: lng,
+      bearing,
+      speed: speed || 0,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({ success: true, message: "Location updated successfully" });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
