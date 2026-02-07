@@ -48,6 +48,355 @@ const Bus = mongoose.model('Bus', busSchema);
 
 // ----------------- API ROUTES -----------------
 
+// ✅ AUTHENTICATION ENDPOINTS
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Simple driver validation (in production, use proper auth)
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Email and password required" 
+      });
+    }
+
+    // Create/find user (simplified)
+    const User = mongoose.model('User', new mongoose.Schema({
+      email: String,
+      password: String,
+      name: String,
+      role: String
+    }));
+
+    let user = await User.findOne({ email });
+    if (!user) {
+      user = await User.create({
+        email,
+        password, // In production, hash this
+        name: email.split('@')[0],
+        role: 'driver'
+      });
+    }
+
+    res.json({
+      success: true,
+      token: "simple-token-" + Date.now(), // Simple token
+      user: {
+        _id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { email, password, role = 'driver', name } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Email and password required" 
+      });
+    }
+
+    const User = mongoose.model('User', new mongoose.Schema({
+      email: String,
+      password: String,
+      name: String,
+      role: String
+    }));
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Email already exists" 
+      });
+    }
+
+    const user = await User.create({
+      email,
+      password,
+      name: name || email.split('@')[0],
+      role
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Account created successfully",
+      user: {
+        _id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    // Simple token validation (in production, use JWT)
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: "Invalid token" });
+    }
+
+    const User = mongoose.model('User', new mongoose.Schema({
+      email: String,
+      password: String,
+      name: String,
+      role: String
+    }));
+
+    // For demo, return a mock user
+    res.json({
+      success: true,
+      user: {
+        _id: "mock-user-id",
+        email: "driver@example.com",
+        name: "Driver",
+        role: "driver"
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ DRIVER VEHICLE ENDPOINTS
+app.get('/api/driver/my-vehicle', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Get first bus for demo
+    const bus = await Bus.findOne().populate('route');
+    
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "No vehicle found" 
+      });
+    }
+
+    res.json({
+      success: true,
+      vehicle: {
+        _id: bus._id,
+        number: bus.busNumber,
+        driverName: bus.driverName,
+        route: bus.route
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/driver/register-vehicle', async (req, res) => {
+  try {
+    const { number, driverName, from, to, busNumber, route } = req.body;
+    
+    if (!number || !driverName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Bus number and driver name required" 
+      });
+    }
+
+    // Create route
+    const routeStops = [from || "Start", to || "End"];
+    const newRoute = await Route.create({
+      routeName: route || `${from} - ${to}`,
+      stops: routeStops
+    });
+
+    // Create bus
+    const bus = await Bus.create({
+      busNumber: number,
+      driverName,
+      route: newRoute._id,
+      currentStopIndex: 0,
+      isActive: true,
+      location: {
+        latitude: 0,
+        longitude: 0,
+        lastUpdated: new Date()
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Vehicle registered successfully",
+      vehicle: {
+        _id: bus._id,
+        number: bus.busNumber,
+        driverName: bus.driverName,
+        route: newRoute
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ STOPS ENDPOINTS
+app.post('/api/stops', async (req, res) => {
+  try {
+    const { name, lat, lng } = req.body;
+    
+    if (!name || lat == null || lng == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Name, latitude and longitude required" 
+      });
+    }
+
+    const Stop = mongoose.model('Stop', new mongoose.Schema({
+      name: String,
+      lat: Number,
+      lng: Number
+    }));
+
+    const stop = await Stop.create({ name, lat, lng });
+
+    res.status(201).json({
+      success: true,
+      message: "Stop created successfully",
+      stop
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/stops', async (req, res) => {
+  try {
+    const Stop = mongoose.model('Stop', new mongoose.Schema({
+      name: String,
+      lat: Number,
+      lng: Number
+    }));
+
+    const stops = await Stop.find();
+    res.json({
+      success: true,
+      stops
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ ROUTES ENDPOINTS
+app.post('/api/routes', async (req, res) => {
+  try {
+    const { name, from, to, stops } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Route name required" 
+      });
+    }
+
+    const route = await Route.create({
+      routeName: name,
+      stops: stops || [from, to].filter(Boolean)
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Route created successfully",
+      route
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ VEHICLE LOCATION UPDATE (Driver app)
+app.put('/vehicles/:vehicleId/location', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const { lat, lng, bearing } = req.body;
+    
+    if (lat == null || lng == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Latitude and longitude required" 
+      });
+    }
+
+    const bus = await Bus.findById(vehicleId);
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Vehicle not found" 
+      });
+    }
+
+    // Update location
+    bus.location.latitude = lat;
+    bus.location.longitude = lng;
+    bus.location.lastUpdated = new Date();
+    await bus.save();
+
+    // Emit to passengers
+    io.emit('locationUpdate', {
+      lat,
+      lng,
+      bearing: bearing || 0,
+      busId: vehicleId
+    });
+
+    res.json({
+      success: true,
+      message: "Location updated successfully"
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ LEGACY SUPPORT - Old Flutter API
+app.get('/vehicles/search', async (req, res) => {
+  try {
+    const { number } = req.query;
+    const bus = await Bus.findOne({ busNumber: number }).populate('route');
+    
+    if (!bus) {
+      return res.json({ success: false, vehicles: [] });
+    }
+
+    res.json({
+      success: true,
+      vehicles: [{
+        _id: bus._id,
+        number: bus.busNumber,
+        currentLocation: {
+          lat: bus.location.latitude,
+          lng: bus.location.longitude
+        },
+        route: bus.route
+      }]
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ✅ HOME PAGE - All available buses
 app.get('/', (req, res) => {
   res.json({
@@ -64,7 +413,8 @@ app.get('/', (req, res) => {
       updateLocation: "PUT /bus/location/:busNumber",
       updateStop: "PUT /bus/stop/:busNumber",
       allBuses: "GET /buses",
-      addBus: "POST /bus/add"
+      addBus: "POST /bus/add",
+      legacySearch: "GET /vehicles/search?number=UP15"
     }
   });
 });
@@ -172,6 +522,13 @@ app.put('/bus/location/:busNumber', async (req, res) => {
       }
     });
 
+    // Legacy support for old Flutter app
+    io.emit(`locationUpdate`, {
+      lat: latitude,
+      lng: longitude,
+      busId: bus._id
+    });
+
     res.json({
       success: true,
       message: "Location updated successfully",
@@ -243,6 +600,12 @@ io.on('connection', (socket) => {
   socket.on('join-bus', (busNumber) => {
     socket.join(`bus-${busNumber}`);
     console.log(`🚌 User joined bus ${busNumber} room`);
+  });
+
+  // Legacy support for old Flutter app
+  socket.on('joinVehicle', (busId) => {
+    socket.join(`bus-${busId}`);
+    console.log(`🚌 User joined vehicle ${busId} room`);
   });
 
   // Leave bus room
