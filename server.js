@@ -24,6 +24,15 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.log("MongoDB Error:", err));
 
 // ----------------- MODELS -----------------
+// User Model (for authentication)
+const userSchema = new mongoose.Schema({
+  email: { type: String, unique: true },
+  password: String,
+  name: String,
+  role: { type: String, default: 'driver' }
+});
+const User = mongoose.model('User', userSchema);
+
 // Route Model
 const routeSchema = new mongoose.Schema({
   routeName: String,
@@ -46,6 +55,14 @@ const busSchema = new mongoose.Schema({
 });
 const Bus = mongoose.model('Bus', busSchema);
 
+// Stop Model
+const stopSchema = new mongoose.Schema({
+  name: String,
+  lat: Number,
+  lng: Number
+});
+const Stop = mongoose.model('Stop', stopSchema);
+
 // ----------------- API ROUTES -----------------
 
 // ✅ AUTHENTICATION ENDPOINTS
@@ -62,13 +79,6 @@ app.post('/api/login', async (req, res) => {
     }
 
     // Create/find user (simplified)
-    const User = mongoose.model('User', new mongoose.Schema({
-      email: String,
-      password: String,
-      name: String,
-      role: String
-    }));
-
     let user = await User.findOne({ email });
     if (!user) {
       user = await User.create({
@@ -104,13 +114,6 @@ app.post('/api/signup', async (req, res) => {
         error: "Email and password required" 
       });
     }
-
-    const User = mongoose.model('User', new mongoose.Schema({
-      email: String,
-      password: String,
-      name: String,
-      role: String
-    }));
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -149,13 +152,6 @@ app.get('/api/auth/me', async (req, res) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ success: false, error: "Invalid token" });
     }
-
-    const User = mongoose.model('User', new mongoose.Schema({
-      email: String,
-      password: String,
-      name: String,
-      role: String
-    }));
 
     // For demo, return a mock user
     res.json({
@@ -263,12 +259,6 @@ app.post('/api/stops', async (req, res) => {
       });
     }
 
-    const Stop = mongoose.model('Stop', new mongoose.Schema({
-      name: String,
-      lat: Number,
-      lng: Number
-    }));
-
     const stop = await Stop.create({ name, lat, lng });
 
     res.status(201).json({
@@ -283,12 +273,6 @@ app.post('/api/stops', async (req, res) => {
 
 app.get('/api/stops', async (req, res) => {
   try {
-    const Stop = mongoose.model('Stop', new mongoose.Schema({
-      name: String,
-      lat: Number,
-      lng: Number
-    }));
-
     const stops = await Stop.find();
     res.json({
       success: true,
