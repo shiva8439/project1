@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const Bus = require("../models/Bus");
-const Route = require("../models/Route");
+const Bus = require("./Bus");
+const Route = require("./Route");
 
 
 // ✅ Passenger: bus number se location dekhe
@@ -39,3 +39,4 @@ router.put("/update-stop/:busNumber", async (req, res) => {
 });
 
 module.exports = router;
+
