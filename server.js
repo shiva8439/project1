@@ -260,13 +260,24 @@ app.post('/api/driver/register-vehicle', authenticateToken, async (req, res) => 
     const { busNumber, route, stops } = req.body;
     if (!busNumber || !route) return res.status(400).json({ success: false, error: "Bus number & route required" });
 
+    // Check if route is ObjectId or string, convert if needed
+    let routeId = route;
+    if (typeof route === 'string' && !mongoose.Types.ObjectId.isValid(route)) {
+      // Find route by routeNumber if string provided
+      const routeDoc = await Route.findOne({ routeNumber: route });
+      if (!routeDoc) {
+        return res.status(400).json({ success: false, error: "Route not found" });
+      }
+      routeId = routeDoc._id;
+    }
+
     const exists = await Bus.findOne({ busNumber });
     if (exists) return res.status(400).json({ success: false, error: "Bus already registered" });
 
     const bus = await Bus.create({
       busNumber,
       driverId: req.user.userId,
-      route,
+      route: routeId,
       stops: stops || [],
       location: { latitude: 0, longitude: 0 }
     });
