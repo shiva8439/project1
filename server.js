@@ -318,6 +318,8 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
     const { vehicleId } = req.params;
     const { lat, lng, bearing } = req.body;
     
+    console.log(`🚌 LOCATION UPDATE: Vehicle ${vehicleId} -> Lat: ${lat}, Lng: ${lng}`);
+    
     if (lat == null || lng == null) {
       return res.status(400).json({ 
         success: false, 
@@ -339,19 +341,37 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
     bus.location.lastUpdated = new Date();
     await bus.save();
 
-    // Emit to passengers
+    console.log(`✅ Bus ${bus.busNumber} location updated in database`);
+
+    // Emit to passengers - Multiple channels
     io.emit('locationUpdate', {
       lat,
       lng,
       bearing: bearing || 0,
-      busId: vehicleId
+      busId: vehicleId,
+      busNumber: bus.busNumber
     });
+
+    // Also emit to bus-specific room
+    io.emit(`bus-${bus.busNumber}`, {
+      type: 'location_update',
+      busNumber: bus.busNumber,
+      location: {
+        latitude: lat,
+        longitude: lng,
+        lastUpdated: new Date()
+      }
+    });
+
+    console.log(`📡 Emitted location update to passengers`);
 
     res.json({
       success: true,
-      message: "Location updated successfully"
+      message: "Location updated successfully",
+      busNumber: bus.busNumber
     });
   } catch (err) {
+    console.error(`❌ Location update error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -619,6 +639,23 @@ io.on('connection', (socket) => {
   socket.on('joinVehicle', (busId) => {
     socket.join(`bus-${busId}`);
     console.log(`🚌 User joined vehicle ${busId} room`);
+  });
+
+  // Listen for location updates from drivers
+  socket.on('driver-location-update', (data) => {
+    console.log('📍 Driver location update received:', data);
+    
+    // Broadcast to all passengers
+    io.emit('locationUpdate', data);
+    io.emit(`bus-${data.busNumber}`, {
+      type: 'location_update',
+      busNumber: data.busNumber,
+      location: {
+        latitude: data.lat,
+        longitude: data.lng,
+        lastUpdated: new Date()
+      }
+    });
   });
 
   // Leave bus room
