@@ -366,6 +366,9 @@ app.get('/vehicles/search', async (req, res) => {
       return res.json({ success: false, vehicles: [] });
     }
 
+    // Check if bus has valid location (not 0,0)
+    const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+
     res.json({
       success: true,
       vehicles: [{
@@ -375,7 +378,10 @@ app.get('/vehicles/search', async (req, res) => {
           lat: bus.location.latitude,
           lng: bus.location.longitude
         },
-        route: bus.route
+        hasValidLocation: hasValidLocation,
+        route: bus.route,
+        driverName: bus.driverName,
+        isActive: bus.isActive
       }]
     });
   } catch (err) {
@@ -403,6 +409,27 @@ app.get('/', (req, res) => {
       legacySearch: "GET /vehicles/search?number=UP15"
     }
   });
+});
+
+// ✅ GET ALL BUSES (For debugging)
+app.get('/debug/buses', async (req, res) => {
+  try {
+    const buses = await Bus.find().populate('route');
+    
+    res.json({
+      success: true,
+      totalBuses: buses.length,
+      buses: buses.map(bus => ({
+        busNumber: bus.busNumber,
+        driverName: bus.driverName,
+        location: bus.location,
+        isActive: bus.isActive,
+        routeName: bus.route?.routeName || "No Route"
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ✅ GET ALL BUSES (For selection)
