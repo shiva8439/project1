@@ -36,6 +36,7 @@ const User = mongoose.model('User', userSchema);
 // Route Model
 const routeSchema = new mongoose.Schema({
   routeName: String,
+  routeNumber: { type: String, unique: true, sparse: true }, // sparse: allows null
   stops: [String]
 });
 const Route = mongoose.model('Route', routeSchema);
@@ -215,6 +216,7 @@ app.post('/api/driver/register-vehicle', async (req, res) => {
     const routeStops = [from || "Start", to || "End"];
     const newRoute = await Route.create({
       routeName: route || `${from} - ${to}`,
+      routeNumber: `ROUTE-${Date.now()}`, // Generate unique route number
       stops: routeStops
     });
 
