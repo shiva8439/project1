@@ -1411,3 +1411,371 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
     );
   }
 }
+
+
+
+
+
+
+
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
+void main() {
+  runApp(const BusI());
+}
+
+class BusI extends StatelessWidget {
+  const BusI({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'BusI',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+        fontFamily: 'Roboto',
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+      ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+// ==================== HOME SCREEN ====================
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final TextEditingController _busController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  Future<void> _trackBus() async {
+    final busNumber = _busController.text.trim().toUpperCase();
+    if (busNumber.isEmpty) {
+      setState(() => _errorMessage = "Bus number daalo bhai!");
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await http
+          .get(
+            Uri.parse('https://project1-13.onrender.com/vehicles/search?number=$busNumber'),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      print('Track Response Status: ${response.statusCode}');
+      print('Track Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['success'] == true && data['vehicles'].isNotEmpty) {
+          final bus = data['vehicles'][0];
+          final lat = bus['currentLocation']?['lat']?.toDouble();
+          final lng = bus['currentLocation']?['lng']?.toDouble();
+          final hasValidLocation = bus['hasValidLocation'] ?? false;
+
+          if (lat != null && lng != null && hasValidLocation && lat != 0 && lng != 0) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BusMapScreen(
+                  busId: bus['_id']?.toString() ?? bus['number'],
+                  busNumber: bus['number'],
+                  initialLat: lat,
+                  initialLng: lng,
+                ),
+              ),
+            );
+          } else {
+            setState(() => _errorMessage = "Bus abhi live nahi hai - No GPS data");
+          }
+        } else {
+          setState(() => _errorMessage = "Yeh bus number nahi mila");
+        }
+      } else {
+        setState(() => _errorMessage = "Server error: ${response.statusCode}");
+      }
+    } catch (e) {
+      print('Error: $e');
+      setState(() => _errorMessage = "Network error - try again later");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.blue[600],
+        elevation: 0,
+        title: const Text("Where is my Bus?", style: TextStyle(color: Colors.white)),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 40),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.directions_bus_filled_rounded, size: 80, color: Colors.blue[600]),
+                  const SizedBox(height: 16),
+                  const Text("Track Your Bus", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A237E))),
+                  const SizedBox(height: 8),
+                  Text("Enter bus number to see live location", style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text("Bus Number", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E))),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _busController,
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                      decoration: InputDecoration(
+                        hintText: "e.g. UP17, DL1P",
+                        hintStyle: TextStyle(color: Colors.grey[400]),
+                        prefixIcon: const Icon(Icons.directions_bus, color: Colors.blue),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Colors.blue, width: 2)),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                    ),
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red[200]!)),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline, color: Colors.red[600], size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(_errorMessage!, style: TextStyle(color: Colors.red[700], fontSize: 14))),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _trackBus,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue[600],
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 2,
+                        ),
+                        child: _isLoading
+                            ? const Row(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(color: Colors.white, strokeWidth: 2), SizedBox(width: 12), Text("Searching...")])
+                            : const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.search), SizedBox(width: 8), Text("Track Bus", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600))]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== LIVE MAP SCREEN WITH REAL BUS MARKER ====================
+class BusMapScreen extends StatefulWidget {
+  final String busId;
+  final String busNumber;
+  final double initialLat;
+  final double initialLng;
+
+  const BusMapScreen({
+    required this.busId,
+    required this.busNumber,
+    required this.initialLat,
+    required this.initialLng,
+    super.key,
+  });
+
+  @override
+  State<BusMapScreen> createState() => _BusMapScreenState();
+}
+
+class _BusMapScreenState extends State<BusMapScreen> {
+  late IO.Socket socket;
+  late MapController _mapController;
+
+  LatLng _busPosition = const LatLng(28.7041, 77.1026); // fallback
+  bool _isLive = false;
+  String status = "Connecting...";
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _busPosition = LatLng(widget.initialLat, widget.initialLng);
+
+    _connectSocket();
+  }
+
+  void _connectSocket() {
+    socket = IO.io('https://project1-13.onrender.com', <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+      'timeout': 8000,
+    });
+
+    socket.connect();
+
+    socket.onConnect((_) {
+      print("Socket connected");
+      socket.emit('join-bus', widget.busNumber);
+      setState(() => status = "Connected – Waiting for location...");
+    });
+
+    socket.on('locationUpdate', (data) {
+      final receivedBus = data['busNumber'] ?? data['busId']?.toString();
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lng = (data['lng'] as num?)?.toDouble();
+
+      if (receivedBus == widget.busNumber && lat != null && lng != null && lat != 0 && lng != 0) {
+        setState(() {
+          _busPosition = LatLng(lat, lng);
+          _isLive = true;
+          status = "LIVE • Bus is moving";
+        });
+        _mapController.move(_busPosition, 16.0);
+      }
+    });
+
+    socket.onDisconnect((_) {
+      setState(() {
+        status = "Disconnected";
+        _isLive = false;
+      });
+    });
+
+    socket.onConnectError((err) {
+      print("Socket connect error: $err");
+      setState(() => status = "Connection failed");
+    });
+  }
+
+  @override
+  void dispose() {
+    socket.disconnect();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.blue[600],
+        elevation: 0,
+        title: Text("Bus ${widget.busNumber} - Live", style: const TextStyle(color: Colors.white)),
+        centerTitle: true,
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _busPosition,
+              initialZoom: 16.0,
+              minZoom: 10,
+              maxZoom: 18,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.busi',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _busPosition,
+                    width: 70,
+                    height: 70,
+                    child: AnimatedOpacity(
+                      opacity: _isLive ? 1.0 : 0.6,
+                      duration: const Duration(milliseconds: 400),
+                      child: Icon(
+                        Icons.directions_bus_rounded,
+                        size: 50,
+                        color: _isLive ? Colors.red : Colors.grey,
+                        shadows: const [Shadow(blurRadius: 8, color: Colors.black45, offset: Offset(2, 2))],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Status banner
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(_isLive ? Icons.circle : Icons.circle_outlined, color: _isLive ? Colors.green : Colors.orange, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(status, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
