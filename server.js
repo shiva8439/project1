@@ -483,7 +483,7 @@ app.get('/debug/buses', async (req, res) => {
   }
 });
 
-// ✅ GET ALL BUSES (For selection)
+// ✅ GET ALL BUSES (For selection) - ALL LIVE BUSES
 app.get('/buses', async (req, res) => {
   try {
     const buses = await Bus.find({ isActive: true }).populate('route');
@@ -496,8 +496,12 @@ app.get('/buses', async (req, res) => {
         driverName: bus.driverName || "Driver",
         routeName: bus.route?.routeName || "No Route",
         currentStop: bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route",
-        isLive: bus.location.lastUpdated > new Date(Date.now() - 5 * 60 * 1000), // Last 5 minutes
-        lastSeen: bus.location.lastUpdated
+        isLive: isBusLive(bus.location.lastUpdated), // Check if bus is live
+        lastSeen: bus.location.lastUpdated,
+        location: bus.location,
+        status: bus.status,
+        currentPassengers: bus.currentPassengers || 0,
+        capacity: bus.capacity || 50
       }))
     });
   } catch (err) {
