@@ -64,6 +64,16 @@ const stopSchema = new mongoose.Schema({
 });
 const Stop = mongoose.model('Stop', stopSchema);
 
+// ----------------- HELPER FUNCTIONS -----------------
+// Check if bus is live (updated in last 2 minutes)
+function isBusLive(lastUpdated) {
+  if (!lastUpdated) return false;
+  const now = new Date();
+  const lastUpdate = new Date(lastUpdated);
+  const diffMinutes = (now - lastUpdate) / (1000 * 60);
+  return diffMinutes <= 2; // Live if updated within last 2 minutes
+}
+
 // ----------------- API ROUTES -----------------
 
 // ✅ AUTHENTICATION ENDPOINTS
@@ -479,13 +489,43 @@ io.on('driver-location-update', (data) => {
 });
 
 console.log('🚌 Driver GPS endpoints loaded');
+
+// ✅ LEGACY SEARCH ENDPOINT (For Flutter App)
 app.get('/vehicles/search', async (req, res) => {
   try {
     const { number } = req.query;
     console.log(`🔍 LEGACY SEARCH: ${number}`);
     
     if (!number) {
-      return res.json({ success: false, vehicles: [] });
+      // If no number provided, return all active buses
+      const buses = await Bus.find({ isActive: true }).populate('route');
+      
+      const vehicles = buses.map(bus => {
+        const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+        
+        return {
+          _id: bus._id,
+          number: bus.busNumber,
+          currentLocation: {
+            lat: bus.location.latitude,
+            lng: bus.location.longitude
+          },
+          hasValidLocation: hasValidLocation,
+          route: bus.route,
+          driverName: bus.driverName || "Driver",
+          isActive: bus.isActive,
+          status: bus.status,
+          currentPassengers: bus.currentPassengers || 0,
+          capacity: bus.capacity || 50,
+          lastUpdated: bus.location.lastUpdated
+        };
+      });
+
+      console.log(`📱 RETURNING ALL ${vehicles.length} VEHICLES`);
+      return res.json({
+        success: true,
+        vehicles: vehicles
+      });
     }
 
     // Case-insensitive search for bus number
@@ -513,7 +553,7 @@ app.get('/vehicles/search', async (req, res) => {
         },
         hasValidLocation: hasValidLocation,
         route: bus.route,
-        driverName: bus.driver?.name || "Driver",
+        driverName: bus.driverName || "Driver",
         isActive: bus.isActive,
         status: bus.status,
         currentPassengers: bus.currentPassengers || 0,
@@ -806,4 +846,3 @@ server.listen(PORT, () => {
   console.log(`📱 Live Updates: Socket.IO connected`);
   console.log(`🔗 All Buses: http://localhost:${PORT}/buses`);
 });
- 
