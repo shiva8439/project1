@@ -52,7 +52,8 @@ const busSchema = new mongoose.Schema({
     longitude: { type: Number, default: 0 },
     lastUpdated: { type: Date, default: Date.now }
   },
-  isActive: { type: Boolean, default: true }
+  isActive: { type: Boolean, default: true },
+  lastTripEnded: { type: Date }
 });
 const Bus = mongoose.model('Bus', busSchema);
 
@@ -472,6 +473,61 @@ app.put('/bus/:busNumber/location', async (req, res) => {
   }
 });
 
+// ✅ DRIVER: Update bus status (End Trip) - NEW ENDPOINT
+app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
+  try {
+    const { isActive, tripEnded } = req.body;
+    const { busNumber } = req.params;
+    
+    console.log(`🚌 STATUS UPDATE: Bus ${busNumber} -> isActive: ${isActive}, tripEnded: ${tripEnded}`);
+    
+    const bus = await Bus.findOne({ busNumber: busNumber });
+    
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Bus not found" 
+      });
+    }
+    
+    // Update bus status
+    bus.isActive = isActive;
+    if (tripEnded) {
+      bus.lastTripEnded = new Date();
+    }
+    await bus.save();
+
+    // Emit status update to all passengers
+    io.emit(`bus-${busNumber}`, {
+      type: 'status_update',
+      busNumber: bus.busNumber,
+      isActive: bus.isActive,
+      status: bus.isActive ? "🟢 LIVE" : "🔴 OFFLINE",
+      lastUpdated: new Date()
+    });
+
+    // General status update
+    io.emit('busStatusUpdate', {
+      busNumber: bus.busNumber,
+      isActive: bus.isActive,
+      status: bus.isActive ? "LIVE" : "OFFLINE"
+    });
+
+    console.log(`✅ Bus ${bus.busNumber} status updated to ${bus.isActive ? 'ACTIVE' : 'INACTIVE'}`);
+
+    res.json({
+      success: true,
+      message: "Bus status updated successfully",
+      busNumber: bus.busNumber,
+      isActive: bus.isActive,
+      status: bus.isActive ? "LIVE" : "OFFLINE"
+    });
+  } catch (err) {
+    console.error(`❌ STATUS UPDATE ERROR: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ✅ SOCKET.IO - Handle driver location updates
 io.on('driver-location-update', (data) => {
   console.log('📍 Driver GPS via Socket:', data);  
@@ -845,4 +901,5 @@ server.listen(PORT, () => {
   console.log(`📍 Track Bus: http://localhost:${PORT}/bus/track/UP15`);
   console.log(`📱 Live Updates: Socket.IO connected`);
   console.log(`🔗 All Buses: http://localhost:${PORT}/buses`);
+  console.log(`✅ Bus Status Update Endpoint: /api/driver/bus/:busNumber/status`);
 });
