@@ -312,7 +312,7 @@ app.post('/api/routes', async (req, res) => {
   }
 });
 
-// ✅ VEHICLE LOCATION UPDATE (Driver app)
+// ✅ VEHICLE LOCATION UPDATE (Driver app) - FIXED
 app.put('/vehicles/:vehicleId/location', async (req, res) => {
   try {
     const { vehicleId } = req.params;
@@ -327,7 +327,14 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
       });
     }
 
-    const bus = await Bus.findById(vehicleId);
+    // Try by ObjectId first, then by bus number
+    let bus = await Bus.findById(vehicleId);
+    
+    if (!bus) {
+      // If not found by ID, try by bus number
+      bus = await Bus.findOne({ busNumber: vehicleId });
+    }
+    
     if (!bus) {
       return res.status(404).json({ 
         success: false, 
