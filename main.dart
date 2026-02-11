@@ -9,11 +9,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
-
 void main() => runApp(const BusI());
 
-class  BusI extends StatelessWidget {
-  const  BusI({super.key});
+class BusI extends StatelessWidget {
+  const BusI({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -47,12 +46,12 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
-        duration: const Duration(seconds: 2), vsync: this);
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
-        CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-    _scaleAnimation = Tween<double>(begin: 0.5, end: 1).animate(
-        CurvedAnimation(parent: _controller, curve: Curves.bounceOut));
+    _controller =
+        AnimationController(duration: const Duration(seconds: 2), vsync: this);
+    _fadeAnimation = Tween<double>(begin: 0, end: 1)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.bounceOut));
 
     _controller.forward();
     _checkLogin(); // 🔥 AUTO LOGIN CHECK
@@ -83,10 +82,8 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
 
       if (res.statusCode == 200) {
-        Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-                builder: (_) => const RoleSelectionPage()));
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const RoleSelectionPage()));
       } else {
         await prefs.remove('token');
         Navigator.pushReplacement(
@@ -136,8 +133,8 @@ class _SplashScreenState extends State<SplashScreen>
                               letterSpacing: 4)),
                       SizedBox(height: 10),
                       Text('Your Journey, Our Priority',
-                          style: TextStyle(
-                              fontSize: 16, color: Colors.white70)),
+                          style:
+                              TextStyle(fontSize: 16, color: Colors.white70)),
                     ],
                   ),
                 ),
@@ -149,7 +146,6 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
-
 
 // ==================== CUSTOM WIDGETS ====================
 class CustomInputField extends StatelessWidget {
@@ -195,7 +191,8 @@ class CustomInputField extends StatelessWidget {
               const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
           suffixIcon: isPassword
               ? IconButton(
-                  icon: Icon(obscureText ? Icons.visibility : Icons.visibility_off,
+                  icon: Icon(
+                      obscureText ? Icons.visibility : Icons.visibility_off,
                       color: const Color(0xFF3B82F6)),
                   onPressed: onTogglePassword,
                 )
@@ -209,7 +206,8 @@ class CustomInputField extends StatelessWidget {
 class GradientButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
-  const GradientButton({required this.text, required this.onPressed, super.key});
+  const GradientButton(
+      {required this.text, required this.onPressed, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +215,8 @@ class GradientButton extends StatelessWidget {
       width: double.infinity,
       height: 55,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF60A5FA)]),
+        gradient: const LinearGradient(
+            colors: [Color(0xFF3B82F6), Color(0xFF60A5FA)]),
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
@@ -283,7 +282,8 @@ class _LoginPageState extends State<LoginPage> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', data['token']);
         await prefs.setString('user_role', data['user']['role']);
-        await prefs.setString('user_name', data['user']['name'] ?? data['user']['email']);
+        await prefs.setString(
+            'user_name', data['user']['name'] ?? data['user']['email']);
 
         _showSnackBar('Welcome ${data['user']['name'] ?? 'User'}!');
         Navigator.pushReplacement(context,
@@ -314,27 +314,38 @@ class _LoginPageState extends State<LoginPage> {
               children: [
                 const SizedBox(height: 60),
                 const Text('Welcome Back!',
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF3B82F6))),
+                    style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3B82F6))),
                 Text('Login to track your bus live',
                     style: TextStyle(fontSize: 16, color: Colors.grey[700])),
                 const SizedBox(height: 50),
-                CustomInputField(label: 'Email', icon: Icons.email, controller: emailController),
+                CustomInputField(
+                    label: 'Email',
+                    icon: Icons.email,
+                    controller: emailController),
                 CustomInputField(
                   label: 'Password',
                   icon: Icons.lock,
                   controller: passwordController,
                   isPassword: true,
                   obscureText: _obscurePassword,
-                  onTogglePassword: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onTogglePassword: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
                 const SizedBox(height: 30),
-                GradientButton(text: 'Login to SwiftRide', onPressed: handleLogin),
+                GradientButton(
+                    text: 'Login to SwiftRide', onPressed: handleLogin),
                 const SizedBox(height: 20),
                 Center(
                   child: TextButton(
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupPage())),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const SignupPage())),
                     child: const Text("Don't have an account? Sign up",
-                        style: TextStyle(color: Color(0xFF3B82F6), decoration: TextDecoration.underline)),
+                        style: TextStyle(
+                            color: Color(0xFF3B82F6),
+                            decoration: TextDecoration.underline)),
                   ),
                 ),
               ],
@@ -374,12 +385,15 @@ class _SignupPageState extends State<SignupPage> {
 
       final data = jsonDecode(response.body);
       if (response.statusCode == 201 && data['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Account created! Now login"), backgroundColor: Colors.green));
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Account created! Now login"),
+            backgroundColor: Colors.green));
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => const LoginPage()));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? "Signup failed"), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(data['error'] ?? "Signup failed"),
+            backgroundColor: Colors.red));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -392,7 +406,10 @@ class _SignupPageState extends State<SignupPage> {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [Color(0xFF93C5FD), Colors.white], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+          gradient: LinearGradient(
+              colors: [Color(0xFF93C5FD), Colors.white],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -401,26 +418,47 @@ class _SignupPageState extends State<SignupPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 60),
-                const Text('Create Account', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF3B82F6))),
+                const Text('Create Account',
+                    style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3B82F6))),
                 const SizedBox(height: 50),
-                CustomInputField(label: 'Email', icon: Icons.email, controller: emailController),
+                CustomInputField(
+                    label: 'Email',
+                    icon: Icons.email,
+                    controller: emailController),
                 CustomInputField(
                   label: 'Password',
                   icon: Icons.lock,
                   controller: passwordController,
                   isPassword: true,
                   obscureText: _obscurePassword,
-                  onTogglePassword: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onTogglePassword: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
                 Container(
                   margin: const EdgeInsets.only(bottom: 20),
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 5))]),
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: const [
+                        BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 10,
+                            offset: Offset(0, 5))
+                      ]),
                   child: DropdownButtonFormField<String>(
                     value: role,
-                    decoration: const InputDecoration(border: InputBorder.none, labelText: "Select Role", prefixIcon: Icon(Icons.person, color: Color(0xFF3B82F6))),
+                    decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        labelText: "Select Role",
+                        prefixIcon:
+                            Icon(Icons.person, color: Color(0xFF3B82F6))),
                     items: const [
-                      DropdownMenuItem(child: Text("Passenger"), value: "passenger"),
+                      DropdownMenuItem(
+                          child: Text("Passenger"), value: "passenger"),
                       DropdownMenuItem(child: Text("Driver"), value: "driver"),
                     ],
                     onChanged: (val) => setState(() => role = val!),
@@ -496,17 +534,6 @@ class RoleSelectionPage extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _RoleCard(
-                title: "Passenger Panel",
-                subtitle: "Track your bus in real-time",
-                icon: Icons.person,
-                color: Colors.green,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const BusListPage()),
-                ),
-              ),
-              const SizedBox(height: 30),
-              _RoleCard(
                 title: "Driver Panel",
                 subtitle: "Start trip & share live location",
                 icon: Icons.directions_bus,
@@ -570,8 +597,7 @@ class _RoleCard extends StatelessWidget {
                   Text(title,
                       style: const TextStyle(
                           fontSize: 22, fontWeight: FontWeight.bold)),
-                  Text(subtitle,
-                      style: const TextStyle(color: Colors.black54)),
+                  Text(subtitle, style: const TextStyle(color: Colors.black54)),
                 ],
               ),
             ),
@@ -615,8 +641,8 @@ class ProfilePage extends StatelessWidget {
               children: [
                 const SizedBox(height: 30),
                 Text("Name: ${user['name'] ?? 'N/A'}",
-                    style:
-                        const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
                 Text("Role: ${user['role'] ?? 'N/A'}",
                     style: const TextStyle(fontSize: 18, color: Colors.grey)),
@@ -646,225 +672,6 @@ class ProfilePage extends StatelessWidget {
   }
 }
 
-
-// ==================== BUS LIST ====================
-class BusListPage extends StatefulWidget {
-  const BusListPage({super.key});
-  @override
-  State<BusListPage> createState() => _BusListPageState();
-}
-
-class _BusListPageState extends State<BusListPage> {
-  List<dynamic> buses = [];
-  bool loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    fetchBuses();
-  }
-
-  Future<void> fetchBuses() async {
-    try {
-      final res = await http.get(Uri.parse("https://project1-13.onrender.com/vehicles"));
-      if (res.statusCode == 200) {
-        setState(() {
-          buses = jsonDecode(res.body);
-          loading = false;
-        });
-      } else {
-        setState(() => loading = false);
-      }
-    } catch (e) {
-      setState(() => loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Select Your Bus"), backgroundColor: Colors.green),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: fetchBuses,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: buses.length,
-                itemBuilder: (context, i) {
-                  final bus = buses[i];
-                  final isLive = bus['currentLocation']?['lat'] != null;
-                  return Card(
-                    elevation: 8,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                          backgroundColor: isLive ? Colors.green : Colors.grey,
-                          child: Icon(isLive ? Icons.directions_bus : Icons.directions_bus_outlined, color: Colors.white)),
-                      title: Text(bus['number'] ?? "Bus ${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                      subtitle: Text(bus['driverName'] ?? "Unknown Driver"),
-                      trailing: Chip(
-                          label: Text(isLive ? "LIVE" : "Offline"),
-                          backgroundColor: isLive ? Colors.green : Colors.grey,
-                          labelStyle: const TextStyle(color: Colors.white)),
-                      onTap: isLive
-                          ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => PassengerPanel(vehicleId: bus['_id'])))
-                          : null,
-                    ),
-                  );
-                },
-              ),
-            ),
-    );
-  }
-}
-
-// ==================== PASSENGER PANEL ====================
-class PassengerPanel extends StatefulWidget {
-  final String vehicleId;
-  const PassengerPanel({required this.vehicleId, super.key});
-
-  @override
-  State<PassengerPanel> createState() => _PassengerPanelState();
-}
-
-class _PassengerPanelState extends State<PassengerPanel> {
-  final MapController mapController = MapController();
-  late IO.Socket socket;
-
-  LatLng busLocation = const LatLng(19.0760, 72.8777);
-  double busBearing = 0.0;
-  String eta = "Calculating...";
-  String status = "Connecting...";
-
-  final Distance distance = Distance(); // ye line zaroori hai
-
-  @override
-  void initState() {
-    super.initState();
-    _connectToSocket();
-  }
-
-  void _connectToSocket() {
-    socket = IO.io('https://project1-13.onrender.com', <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': false,
-    });
-
-    socket.connect();
-
-    socket.onConnect((_) {
-      setState(() => status = "Live 🚍");
-      socket.emit('joinVehicle', widget.vehicleId);
-    });
-
-    socket.on('locationUpdate', (data) {
-      final lat = (data['lat'] as num?)?.toDouble();
-      final lng = (data['lng'] as num?)?.toDouble();
-      final bearing = (data['bearing'] as num? ?? 0.0).toDouble();
-
-      if (lat == null || lng == null) return;
-
-      final newLocation = LatLng(lat, lng);
-
-      setState(() {
-        busLocation = newLocation;
-        busBearing = bearing;
-        final meters = distance(const LatLng(19.0760, 72.8777), newLocation);
-        final minutes = (meters / 1000 / 30 * 60).round();
-        eta = minutes <= 1 ? "Arriving now" : "$minutes min";
-      });
-
-      mapController.moveAndRotate(newLocation, 16.5, bearing);
-    });
-  }
-
-  @override
-  void dispose() {
-    socket.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Live Bus Tracking"), backgroundColor: Colors.green[700]),
-      body: Stack(
-        children: [
-          FlutterMap(
-            mapController: mapController,
-            options: MapOptions(initialCenter: busLocation, initialZoom: 15.0),
-            children: [
-              TileLayer(
-                urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                subdomains: const ['a', 'b', 'c'],
-              ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: busLocation,
-                    width: 120.0,
-                    height: 120.0,
-                    child: RotationTransition(
-                      turns: AlwaysStoppedAnimation(busBearing / 360),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          TweenAnimationBuilder(
-                            tween: Tween(begin: 0.0, end: 1.0),
-                            duration: const Duration(seconds: 2),
-                            builder: (_, value, __) => Transform.scale(
-                              scale: value * 4,
-                              child: Container(
-                                width: 80,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.green.withOpacity(0.4 - value * 0.4),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const Icon(Icons.directions_bus_filled_rounded, size: 60, color: Colors.green),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          Positioned(
-            top: 20,
-            left: 20,
-            right: 20,
-            child: Card(
-              elevation: 10,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    CircleAvatar(backgroundColor: Colors.green[700], child: const Icon(Icons.directions_bus, color: Colors.white)),
-                    const SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Status: $status", style: const TextStyle(fontSize: 16)),
-                        Text(eta, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ==================== DRIVER PANEL ====================
 class DriverPanel extends StatefulWidget {
   const DriverPanel({super.key});
@@ -880,7 +687,8 @@ class _DriverPanelState extends State<DriverPanel> {
 
   Future<void> startTrip() async {
     if (nameC.text.isEmpty || numberC.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Fill all fields")));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Fill all fields")));
       return;
     }
     final prefs = await SharedPreferences.getInstance();
@@ -899,14 +707,21 @@ class _DriverPanelState extends State<DriverPanel> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Driver Dashboard"), backgroundColor: const Color(0xFF3B82F6)),
+      appBar: AppBar(
+          title: const Text("Driver Dashboard"),
+          backgroundColor: const Color(0xFF3B82F6)),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            CustomInputField(label: "Driver Name", icon: Icons.person, controller: nameC),
-            CustomInputField(label: "Bus Number", icon: Icons.directions_bus, controller: numberC),
-            CustomInputField(label: "From", icon: Icons.location_on, controller: fromC),
+            CustomInputField(
+                label: "Driver Name", icon: Icons.person, controller: nameC),
+            CustomInputField(
+                label: "Bus Number",
+                icon: Icons.directions_bus,
+                controller: numberC),
+            CustomInputField(
+                label: "From", icon: Icons.location_on, controller: fromC),
             CustomInputField(label: "To", icon: Icons.flag, controller: toC),
             const SizedBox(height: 20),
 
@@ -917,8 +732,10 @@ class _DriverPanelState extends State<DriverPanel> {
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.add_box),
                     label: const Text("Add Bus"),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddBusPage())),
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AddBusPage())),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6)),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -926,8 +743,10 @@ class _DriverPanelState extends State<DriverPanel> {
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.location_on),
                     label: const Text("Add Stop"),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddStopPage())),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AddStopPage())),
+                    style:
+                        ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                   ),
                 ),
               ],
@@ -939,8 +758,12 @@ class _DriverPanelState extends State<DriverPanel> {
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.alt_route),
                     label: const Text("Add Route"),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddRoutePage())),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                    onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const AddRoutePage())),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -973,7 +796,9 @@ class _AddBusPageState extends State<AddBusPage> {
   bool loading = false;
 
   void _show(String msg, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : Colors.green));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Colors.red : Colors.green));
   }
 
   Future<void> submit() async {
@@ -989,29 +814,86 @@ class _AddBusPageState extends State<AddBusPage> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
 
+    debugPrint("=== BUS REGISTRATION DEBUG ===");
+    debugPrint("Token: ${token.isNotEmpty ? 'Present' : 'Missing'}");
+    debugPrint(
+        "Bus data: number=$number, driver=$driverName, from=$from, to=$to");
+
     try {
-      final res = await http.post(
-        Uri.parse("https://project1-13.onrender.com/api/driver/register-vehicle"),
+      // First check if bus number already exists
+      final checkResponse = await http.get(
+        Uri.parse('https://project1-13.onrender.com/buses'),
         headers: {
-          "Content-Type": "application/json",
           "Authorization": "Bearer $token",
         },
-        body: jsonEncode({
-          "number": number,
-          "driverName": driverName,
-          "from": from,
-          "to": to
-        }),
       );
 
-      final data = jsonDecode(res.body);
-      if (res.statusCode == 200 && data['success'] == true) {
-        _show("Bus added successfully");
-        Navigator.pop(context);
+      if (checkResponse.statusCode == 200) {
+        final checkData = jsonDecode(checkResponse.body);
+        if (checkData['success'] == true && checkData['buses'] != null) {
+          final existingBuses = checkData['buses'] as List;
+          final duplicateBus = existingBuses.firstWhere(
+            (bus) =>
+                bus['busNumber']?.toString().toLowerCase() ==
+                number.toLowerCase(),
+            orElse: () => null,
+          );
+
+          if (duplicateBus != null) {
+            _show(
+                "Bus number '$number' already exists! Please use a different number.",
+                error: true);
+            setState(() => loading = false);
+            return;
+          }
+        }
+      }
+
+      final response = await http
+          .post(
+            Uri.parse(
+                'https://project1-13.onrender.com/api/driver/register-vehicle'),
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer $token",
+            },
+            body: jsonEncode({
+              "number": number,
+              "driverName": driverName,
+              "from": from,
+              "to": to,
+              "busNumber": number,
+              "route": from + " - " + to
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      debugPrint("=== RESPONSE DEBUG ===");
+      debugPrint("Status Code: ${response.statusCode}");
+      debugPrint("Headers: ${response.headers}");
+      debugPrint("Body: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        try {
+          final data = jsonDecode(response.body);
+          debugPrint("Parsed Data: $data");
+
+          if (data['success'] == true) {
+            _show("✅ Bus registered successfully!");
+            Navigator.pop(context);
+          } else {
+            _show(data['error'] ?? "Registration failed", error: true);
+          }
+        } catch (e) {
+          debugPrint("JSON Parse Error: $e");
+          _show("Server response error", error: true);
+        }
       } else {
-        _show(data['error'] ?? "Failed to add bus", error: true);
+        _show("Server error: ${response.statusCode}", error: true);
       }
     } catch (e) {
+      debugPrint("=== NETWORK ERROR ===");
+      debugPrint("Error: $e");
       _show("Network error: $e", error: true);
     } finally {
       setState(() => loading = false);
@@ -1030,17 +912,26 @@ class _AddBusPageState extends State<AddBusPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Register Bus"), backgroundColor: const Color(0xFF3B82F6)),
+      appBar: AppBar(
+          title: const Text("Register Bus"),
+          backgroundColor: const Color(0xFF3B82F6)),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            CustomInputField(label: "Bus Number", icon: Icons.directions_bus, controller: numberC),
-            CustomInputField(label: "Driver Name", icon: Icons.person, controller: driverC),
-            CustomInputField(label: "From", icon: Icons.location_on, controller: fromC),
+            CustomInputField(
+                label: "Bus Number",
+                icon: Icons.directions_bus,
+                controller: numberC),
+            CustomInputField(
+                label: "Driver Name", icon: Icons.person, controller: driverC),
+            CustomInputField(
+                label: "From", icon: Icons.location_on, controller: fromC),
             CustomInputField(label: "To", icon: Icons.flag, controller: toC),
             const SizedBox(height: 16),
-            loading ? const CircularProgressIndicator() : GradientButton(text: "Add Bus", onPressed: submit),
+            loading
+                ? const CircularProgressIndicator()
+                : GradientButton(text: "Add Bus", onPressed: submit),
           ],
         ),
       ),
@@ -1061,7 +952,10 @@ class _AddStopPageState extends State<AddStopPage> {
   final lngC = TextEditingController();
   bool loading = false;
 
-  void _show(String msg, {bool error = false}) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : Colors.green));
+  void _show(String msg, {bool error = false}) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: error ? Colors.red : Colors.green));
 
   Future<void> useCurrentLocation() async {
     try {
@@ -1069,7 +963,8 @@ class _AddStopPageState extends State<AddStopPage> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
       latC.text = pos.latitude.toString();
       lngC.text = pos.longitude.toString();
     } catch (e) {
@@ -1123,20 +1018,32 @@ class _AddStopPageState extends State<AddStopPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Add Stop"), backgroundColor: Colors.teal),
+      appBar:
+          AppBar(title: const Text("Add Stop"), backgroundColor: Colors.teal),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            CustomInputField(label: "Stop Name", icon: Icons.place, controller: nameC),
-            CustomInputField(label: "Latitude", icon: Icons.map, controller: latC),
-            CustomInputField(label: "Longitude", icon: Icons.map_outlined, controller: lngC),
+            CustomInputField(
+                label: "Stop Name", icon: Icons.place, controller: nameC),
+            CustomInputField(
+                label: "Latitude", icon: Icons.map, controller: latC),
+            CustomInputField(
+                label: "Longitude", icon: Icons.map_outlined, controller: lngC),
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(child: ElevatedButton.icon(onPressed: useCurrentLocation, icon: const Icon(Icons.my_location), label: const Text("Use current location"))),
+                Expanded(
+                    child: ElevatedButton.icon(
+                        onPressed: useCurrentLocation,
+                        icon: const Icon(Icons.my_location),
+                        label: const Text("Use current location"))),
                 const SizedBox(width: 8),
-                Expanded(child: loading ? const Center(child: CircularProgressIndicator()) : ElevatedButton(onPressed: submit, child: const Text("Save Stop"))),
+                Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ElevatedButton(
+                            onPressed: submit, child: const Text("Save Stop"))),
               ],
             )
           ],
@@ -1161,7 +1068,10 @@ class _AddRoutePageState extends State<AddRoutePage> {
   List<dynamic> stops = [];
   Map<String, bool> selected = {};
 
-  void _show(String msg, {bool error = false}) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : Colors.green));
+  void _show(String msg, {bool error = false}) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: error ? Colors.red : Colors.green));
 
   @override
   void initState() {
@@ -1171,14 +1081,18 @@ class _AddRoutePageState extends State<AddRoutePage> {
 
   Future<void> fetchStops() async {
     try {
-      final res = await http.get(Uri.parse("https://project1-13.onrender.com/api/stops"));
+      final res = await http
+          .get(Uri.parse("https://project1-13.onrender.com/api/stops"));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         // server returns { success: true, stops: [...] } or array depending on server version — handle both
         final list = data is List ? data : (data['stops'] ?? []);
         setState(() {
           stops = list;
-          selected = {for (var s in stops) (s['_id'] ?? s['id'] ?? s['__id'] ?? s['id'].toString()): false};
+          selected = {
+            for (var s in stops)
+              (s['_id'] ?? s['id'] ?? s['__id'] ?? s['id'].toString()): false
+          };
         });
       }
     } catch (_) {}
@@ -1188,7 +1102,8 @@ class _AddRoutePageState extends State<AddRoutePage> {
     final name = nameC.text.trim();
     final from = fromC.text.trim();
     final to = toC.text.trim();
-    final chosen = selected.entries.where((e) => e.value).map((e) => e.key).toList();
+    final chosen =
+        selected.entries.where((e) => e.value).map((e) => e.key).toList();
     if (name.isEmpty) {
       _show("Route name required", error: true);
       return;
@@ -1204,7 +1119,8 @@ class _AddRoutePageState extends State<AddRoutePage> {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",
         },
-        body: jsonEncode({"name": name, "from": from, "to": to, "stops": chosen}),
+        body:
+            jsonEncode({"name": name, "from": from, "to": to, "stops": chosen}),
       );
       final data = jsonDecode(res.body);
       if (res.statusCode == 201 && data['success'] == true) {
@@ -1244,23 +1160,35 @@ class _AddRoutePageState extends State<AddRoutePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Create Route"), backgroundColor: Colors.orange),
+      appBar: AppBar(
+          title: const Text("Create Route"), backgroundColor: Colors.orange),
       body: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            CustomInputField(label: "Route Name", icon: Icons.title, controller: nameC),
-            CustomInputField(label: "From", icon: Icons.location_pin, controller: fromC),
+            CustomInputField(
+                label: "Route Name", icon: Icons.title, controller: nameC),
+            CustomInputField(
+                label: "From", icon: Icons.location_pin, controller: fromC),
             CustomInputField(label: "To", icon: Icons.flag, controller: toC),
             const SizedBox(height: 8),
-            const Align(alignment: Alignment.centerLeft, child: Padding(padding: EdgeInsets.symmetric(vertical: 8.0), child: Text("Select stops (optional)", style: TextStyle(fontWeight: FontWeight.bold)))),
+            const Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text("Select stops (optional)",
+                        style: TextStyle(fontWeight: FontWeight.bold)))),
             Expanded(
               child: stops.isEmpty
                   ? const Center(child: Text("No stops loaded"))
-                  : ListView.builder(itemCount: stops.length, itemBuilder: (_, i) => _stopTile(stops[i])),
+                  : ListView.builder(
+                      itemCount: stops.length,
+                      itemBuilder: (_, i) => _stopTile(stops[i])),
             ),
             const SizedBox(height: 8),
-            loading ? const CircularProgressIndicator() : GradientButton(text: "Create Route", onPressed: submit),
+            loading
+                ? const CircularProgressIndicator()
+                : GradientButton(text: "Create Route", onPressed: submit),
           ],
         ),
       ),
@@ -1269,7 +1197,6 @@ class _AddRoutePageState extends State<AddRoutePage> {
 }
 
 // ==================== DRIVER MAP SCREEN ====================
-
 
 class DriverMapScreen extends StatefulWidget {
   final String from, to, driverName, busNumber, token;
@@ -1290,14 +1217,60 @@ class DriverMapScreen extends StatefulWidget {
 class _DriverMapScreenState extends State<DriverMapScreen> {
   LatLng pos = const LatLng(19.0760, 72.8777);
   Timer? timer;
+  bool loading = true;
 
   late IO.Socket socket;
 
   @override
   void initState() {
     super.initState();
+    _requestLocationPermission();
     connectSocket();
     timer = Timer.periodic(const Duration(seconds: 5), (_) => updateLocation());
+  }
+
+  // 🔥 Request Location Permission
+  Future<void> _requestLocationPermission() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _showLocationError("Location permission denied");
+          return;
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        _showLocationError("Location permission permanently denied");
+        return;
+      }
+
+      // Get initial location
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      setState(() {
+        pos = LatLng(position.latitude, position.longitude);
+        loading = false;
+      });
+    } catch (e) {
+      debugPrint("Location permission error: $e");
+      setState(() => loading = false);
+    }
+  }
+
+  void _showLocationError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        action: SnackBarAction(
+          label: "Settings",
+          onPressed: () => Geolocator.openAppSettings(),
+        ),
+      ),
+    );
   }
 
   // 🔥 Connect Driver to Socket
@@ -1316,7 +1289,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
       debugPrint("🚍 Driver connected to socket");
 
       // Join room using busNumber
-      socket.emit("joinVehicle", widget.busNumber);
+      socket.emit("join-bus", widget.busNumber);
     });
   }
 
@@ -1341,7 +1314,7 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
 
       await http.put(
         Uri.parse(
-            "https://project1-13.onrender.com/vehicles/$encodedBusNumber/location"),
+            "https://project1-13.onrender.com/bus/$encodedBusNumber/location"),
         headers: {
           "Authorization": "Bearer ${widget.token}",
           "Content-Type": "application/json"
@@ -1354,20 +1327,17 @@ class _DriverMapScreenState extends State<DriverMapScreen> {
       );
 
       // 2️⃣ Send LIVE location to socket
-print("SOCKET BUS → ${widget.busNumber}");   // ← YAHAN ADD KARO
+      print("SOCKET BUS → ${widget.busNumber}"); // ← YAHAN ADD KARO
 
-socket.emit("locationUpdate", {
-  "busNumber": widget.busNumber.trim(),   // FIXED KEY
-  "lat": position.latitude,
-  "lng": position.longitude,
-  "bearing": position.heading,
-});
-
-
+      socket.emit("driver-location-update", {
+        "busNumber": widget.busNumber.trim(), // FIXED KEY
+        "lat": position.latitude,
+        "lng": position.longitude,
+        "bearing": position.heading,
+      });
 
       debugPrint(
           "Driver Location → ${position.latitude}, ${position.longitude}");
-
     } catch (e) {
       debugPrint("Location error: $e");
     }
@@ -1392,30 +1362,52 @@ socket.emit("locationUpdate", {
                 Navigator.popUntil(context, (route) => route.isFirst),
             child: const Text(
               "End Trip",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           )
         ],
       ),
-      body: FlutterMap(
-        options: MapOptions(initialCenter: pos, initialZoom: 16),
-        children: [
-          TileLayer(
-            urlTemplate:
-                "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            subdomains: const ['a', 'b', 'c'],
-          ),
-          MarkerLayer(
-            markers: [
-              Marker(
-                point: pos,
-                child:
-                    const Icon(Icons.directions_bus, size: 60, color: Colors.red),
+      body: loading
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text("Getting location..."),
+                ],
               ),
-            ],
-          ),
-        ],
-      ),
+            )
+          : FlutterMap(
+              options: MapOptions(
+                initialCenter: pos,
+                initialZoom: 16,
+                minZoom: 3,
+                maxZoom: 19,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  subdomains: const ['a', 'b', 'c'],
+                  userAgentPackageName: 'com.example.swift_ride',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: pos,
+                      width: 80,
+                      height: 80,
+                      child: const Icon(
+                        Icons.directions_bus,
+                        size: 48,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
     );
   }
 }
