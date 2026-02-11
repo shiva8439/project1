@@ -383,7 +383,102 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
   }
 });
 
-// ✅ LEGACY SUPPORT - Old Flutter API - FIXED
+// ✅ DRIVER LOCATION UPDATE - Missing endpoint for Flutter driver app
+app.put('/bus/:busNumber/location', async (req, res) => {
+  try {
+    const { busNumber } = req.params;
+    const { lat, lng, bearing } = req.body;
+    
+    console.log(`🚌 DRIVER GPS UPDATE: Bus ${busNumber}`);
+    console.log(`   Location: ${lat}, ${lng}`);
+    console.log(`   Bearing: ${bearing || 0}`);
+    
+    if (lat == null || lng == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Latitude and longitude required" 
+      });
+    }
+
+    // Find bus by busNumber
+    const bus = await Bus.findOne({ busNumber: busNumber });
+    if (!bus) {
+      console.log(`❌ Bus ${busNumber} not found`);
+      return res.status(404).json({ 
+        success: false, 
+        error: "Bus not found" 
+      });
+    }
+
+    // Update location in database
+    bus.location.latitude = lat;
+    bus.location.longitude = lng;
+    bus.location.lastUpdated = new Date();
+    await bus.save();
+
+    console.log(`✅ Bus ${bus.busNumber} GPS updated in database`);
+
+    // 📡 Emit to passengers - Multiple channels for compatibility
+    const locationData = {
+      lat,
+      lng,
+      bearing: bearing || 0,
+      busId: bus._id,
+      busNumber: bus.busNumber,
+      timestamp: new Date()
+    };
+
+    // Channel 1: General location update
+    io.emit('locationUpdate', locationData);
+    
+    // Channel 2: Bus-specific room
+    io.emit(`bus-${bus.busNumber}`, {
+      type: 'location_update',
+      busNumber: bus.busNumber,
+      location: {
+        latitude: lat,
+        longitude: lng,
+        lastUpdated: new Date()
+      }
+    });
+
+    console.log(`📡 GPS data sent to passengers`);
+    console.log(`   Channels: locationUpdate, bus-${bus.busNumber}`);
+
+    res.json({
+      success: true,
+      message: "GPS location updated successfully",
+      busNumber: bus.busNumber,
+      location: {
+        latitude: lat,
+        longitude: lng,
+        lastUpdated: new Date()
+      }
+    });
+    
+  } catch (err) {
+    console.error(`❌ GPS Update Error: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ SOCKET.IO - Handle driver location updates
+io.on('driver-location-update', (data) => {
+  console.log('📍 Driver GPS via Socket:', data);  
+  // Broadcast to all passengers
+  io.emit('locationUpdate', data);
+  io.emit(`bus-${data.busNumber}`, {
+    type: 'location_update',
+    busNumber: data.busNumber,
+    location: {
+      latitude: data.lat,
+      longitude: data.lng,
+      lastUpdated: new Date()
+    }
+  });
+});
+
+console.log('🚌 Driver GPS endpoints loaded');
 app.get('/vehicles/search', async (req, res) => {
   try {
     const { number } = req.query;
