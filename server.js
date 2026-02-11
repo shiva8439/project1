@@ -371,27 +371,38 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
       busNumber: bus.busNumber
     });
   } catch (err) {
-    console.error(`❌ Location update error: ${err.message}`);
+    console.error(`❌ LOCATION UPDATE ERROR: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ LEGACY SUPPORT - Old Flutter API
+// ✅ LEGACY SUPPORT - Old Flutter API - FIXED
 app.get('/vehicles/search', async (req, res) => {
   try {
     const { number } = req.query;
-    const bus = await Bus.findOne({ busNumber: number }).populate('route');
+    console.log(`🔍 LEGACY SEARCH: ${number}`);
     
-    if (!bus) {
+    if (!number) {
       return res.json({ success: false, vehicles: [] });
     }
 
-    // Check if bus has valid location (not 0,0)
-    const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+    // Case-insensitive search for bus number
+    const buses = await Bus.find({ 
+      busNumber: { $regex: new RegExp('^' + number + '$', 'i') },
+      isActive: true 
+    }).populate('route');
+    
+    console.log(`🚌 BUSES FOUND: ${buses.length}`);
+    
+    if (buses.length === 0) {
+      return res.json({ success: false, vehicles: [] });
+    }
 
-    res.json({
-      success: true,
-      vehicles: [{
+    // Map all found buses to vehicles format
+    const vehicles = buses.map(bus => {
+      const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+      
+      return {
         _id: bus._id,
         number: bus.busNumber,
         currentLocation: {
@@ -400,11 +411,24 @@ app.get('/vehicles/search', async (req, res) => {
         },
         hasValidLocation: hasValidLocation,
         route: bus.route,
-        driverName: bus.driverName,
-        isActive: bus.isActive
-      }]
+        driverName: bus.driver?.name || "Driver",
+        isActive: bus.isActive,
+        status: bus.status,
+        currentPassengers: bus.currentPassengers || 0,
+        capacity: bus.capacity || 50,
+        lastUpdated: bus.location.lastUpdated
+      };
     });
+
+    console.log(`📱 RETURNING ${vehicles.length} VEHICLES`);
+
+    res.json({
+      success: true,
+      vehicles: vehicles
+    });
+    
   } catch (err) {
+    console.error(`❌ LEGACY SEARCH ERROR: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
