@@ -84,18 +84,24 @@ app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    console.log(`Login attempt for email: ${email}`);
+    console.log(`Login attempt for: ${email}`);
     
     // Simple driver validation (in production, use proper auth)
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
-        error: "Email and password required" 
+        error: "Email/Username and password required" 
       });
     }
 
-    // Find existing user only (don't create new ones)
-    let user = await User.findOne({ email });
+    // Find user by email OR username (both stored in email field)
+    let user = await User.findOne({ 
+      $or: [
+        { email: email },
+        { name: email }
+      ]
+    });
+    
     if (!user) {
       console.log(`User not found: ${email}`);
       return res.status(401).json({ 
@@ -340,6 +346,52 @@ app.post('/api/routes', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// ✅ GET ALL ROUTES (Passenger ke liye)
+app.get('/api/routes', async (req, res) => {
+  try {
+    const routes = await Route.find();
+
+    res.json({
+      success: true,
+      totalRoutes: routes.length,
+      routes: routes.map(route => ({
+        _id: route._id,
+        routeName: route.routeName,
+        totalStops: route.stops.length,
+        stops: route.stops
+      }))
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+// ✅ GET BUSES BY ROUTE
+app.get('/api/routes/:routeId/buses', async (req, res) => {
+  try {
+    const buses = await Bus.find({
+      route: req.params.routeId,
+      isActive: true
+    }).populate('route');
+
+    res.json({
+      success: true,
+      totalBuses: buses.length,
+      buses: buses.map(bus => ({
+        _id: bus._id,
+        busNumber: bus.busNumber,
+        driverName: bus.driverName,
+        currentStop: bus.route?.stops[bus.currentStopIndex],
+        isLive: isBusLive(bus.location.lastUpdated),
+        lastUpdated: bus.location.lastUpdated
+      }))
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 // ✅ VEHICLE LOCATION UPDATE (Driver app) - FIXED
 app.put('/vehicles/:vehicleId/location', async (req, res) => {
