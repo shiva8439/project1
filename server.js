@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const bcrypt = require('bcryptjs');
+const saltRounds = 10;
 require('dotenv').config();
 
 const app = express();
@@ -82,6 +84,8 @@ app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
+    console.log(`Login attempt for email: ${email}`);
+    
     // Simple driver validation (in production, use proper auth)
     if (!email || !password) {
       return res.status(400).json({ 
@@ -90,17 +94,27 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
-    // Create/find user (simplified)
+    // Find existing user only (don't create new ones)
     let user = await User.findOne({ email });
     if (!user) {
-      user = await User.create({
-        email,
-        password, // In production, hash this
-        name: email.split('@')[0],
-        role: 'driver'
+      console.log(`User not found: ${email}`);
+      return res.status(401).json({ 
+        success: false, 
+        error: "User not found. Please sign up first." 
       });
     }
 
+    // Check if password matches (compare with hashed password)
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      console.log(`Password mismatch for: ${email}`);
+      return res.status(401).json({ 
+        success: false, 
+        error: "Invalid password" 
+      });
+    }
+
+    console.log(`Login successful for: ${email}`);
     res.json({
       success: true,
       token: "simple-token-" + Date.now(), // Simple token
@@ -112,6 +126,7 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (err) {
+    console.error("Login error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -135,9 +150,12 @@ app.post('/api/signup', async (req, res) => {
       });
     }
 
+    // Hash password before saving
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
     const user = await User.create({
       email,
-      password,
+      password: hashedPassword,
       name: name || email.split('@')[0],
       role
     });
