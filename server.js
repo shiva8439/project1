@@ -323,29 +323,23 @@ app.get('/api/stops', async (req, res) => {
 // ✅ ROUTES ENDPOINTS
 app.post('/api/routes', async (req, res) => {
   try {
-    const { name, from, to, stops } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Route name required" 
-      });
-    }
+    const { routeName, stops } = req.body;
 
     const route = await Route.create({
-      routeName: name,
-      stops: stops || [from, to].filter(Boolean)
+      routeName,
+      routeNumber: `ROUTE-${Date.now()}`,  // 👈 Yaha add karo
+      stops
     });
 
     res.status(201).json({
       success: true,
-      message: "Route created successfully",
       route
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
+
 // ✅ GET ALL ROUTES (Passenger ke liye)
 app.get('/api/routes', async (req, res) => {
   try {
@@ -973,3 +967,4 @@ server.listen(PORT, () => {
   console.log(`🔗 All Buses: http://localhost:${PORT}/buses`);
   console.log(`✅ Bus Status Update Endpoint: /api/driver/bus/:busNumber/status`);
 });
+
