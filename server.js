@@ -9,10 +9,10 @@ const saltRounds = 10;
 require('dotenv').config();
 
 // Import new production models and services
-const Bus = require('./models/Bus');
-const Route = require('./models/Route');
-const User = require('./models/User');
-const stopDetectionService = require('./services/StopDetectionService');
+const Bus = require('./Bus');
+const Route = require('./Route');
+const User = require('./User');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -649,3 +649,4 @@ server.listen(PORT, () => {
   console.log(`   ✅ Zero Legacy Code: Clean startup-grade`);
   console.log(`🔒 Ready for Production Deployment`);
 });
+
