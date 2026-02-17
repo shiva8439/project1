@@ -4,15 +4,8 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const saltRounds = 10;
 require('dotenv').config();
-
-// Import new production models and services
-const Bus = require('./Bus');
-const Route = require('./Route');
-const User = require('./User');
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,41 +20,66 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// Store io instance for use in routes
-const ioInstance = io;
-app.set('io', ioInstance);
-
-// MongoDB Connection with JWT secret check
-if (!process.env.JWT_SECRET) {
-  console.error("❌ JWT_SECRET missing in environment variables");
-  process.exit(1);
-}
-
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log("MongoDB Error:", err));
 
-// ----------------- JWT MIDDLEWARE -----------------
-function verifyToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, error: "Unauthorized" });
-  }
+// ----------------- MODELS -----------------
+// User Model (for authentication)
+const userSchema = new mongoose.Schema({
+  email: { type: String, unique: true },
+  password: String,
+  name: String,
+  role: { type: String, default: 'driver' }
+});
+const User = mongoose.model('User', userSchema);
 
-  const token = authHeader.split(" ")[1];
+// Route Model
+const routeSchema = new mongoose.Schema({
+  routeName: String,
+  routeNumber: { type: String, unique: true, sparse: true }, // sparse: allows null
+  stops: [String]
+});
+const Route = mongoose.model('Route', routeSchema);
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ success: false, error: "Invalid token" });
-  }
+// Bus Model (with live location)
+const busSchema = new mongoose.Schema({
+  busNumber: { type: String, unique: true },
+  driverName: String,
+  route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
+  currentStopIndex: { type: Number, default: 0 },
+  location: {
+    latitude: { type: Number, default: 0 },
+    longitude: { type: Number, default: 0 },
+    lastUpdated: { type: Date, default: Date.now }
+  },
+  isActive: { type: Boolean, default: true },
+  lastTripEnded: { type: Date }
+});
+const Bus = mongoose.model('Bus', busSchema);
+
+// Stop Model
+const stopSchema = new mongoose.Schema({
+  name: String,
+  lat: Number,
+  lng: Number
+});
+const Stop = mongoose.model('Stop', stopSchema);
+
+// ----------------- HELPER FUNCTIONS -----------------
+// Check if bus is live (updated in last 2 minutes)
+function isBusLive(lastUpdated) {
+  if (!lastUpdated) return false;
+  const now = new Date();
+  const lastUpdate = new Date(lastUpdated);
+  const diffMinutes = (now - lastUpdate) / (1000 * 60);
+  return diffMinutes <= 2; // Live if updated within last 2 minutes
 }
 
 // ----------------- API ROUTES -----------------
 
-// AUTHENTICATION ENDPOINTS
+// ✅ AUTHENTICATION ENDPOINTS
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -103,21 +121,9 @@ app.post('/api/login', async (req, res) => {
     }
 
     console.log(`Login successful for: ${email}`);
-    
-    // Generate proper JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id, 
-        email: user.email, 
-        name: user.name, 
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
     res.json({
       success: true,
-      token: token,
+      token: "simple-token-" + Date.now(), // Simple token
       user: {
         _id: user._id,
         email: user.email,
@@ -175,20 +181,22 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', verifyToken, async (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
-    if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+    // Simple token validation (in production, use JWT)
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: "Invalid token" });
     }
-    
+
+    // For demo, return a mock user
     res.json({
       success: true,
       user: {
-        _id: user._id,
-        email: user.email,
-        name: user.name,
-        role: user.role
+        _id: "mock-user-id",
+        email: "driver@example.com",
+        name: "Driver",
+        role: "driver"
       }
     });
   } catch (err) {
@@ -196,16 +204,21 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ DRIVER VEHICLE ENDPOINTS - JWT PROTECTED
-app.get('/api/driver/my-vehicle', verifyToken, async (req, res) => {
+// ✅ DRIVER VEHICLE ENDPOINTS
+app.get('/api/driver/my-vehicle', async (req, res) => {
   try {
-    // Find bus assigned to this driver
-    const bus = await Bus.findOne({ driverName: req.user.name }).populate('route');
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Get first bus for demo
+    const bus = await Bus.findOne().populate('route');
     
     if (!bus) {
       return res.status(404).json({ 
         success: false, 
-        error: "No vehicle assigned to driver" 
+        error: "No vehicle found" 
       });
     }
 
@@ -223,8 +236,7 @@ app.get('/api/driver/my-vehicle', verifyToken, async (req, res) => {
   }
 });
 
-// ✅ DRIVER VEHICLE REGISTRATION - PROTECTED
-app.post('/api/driver/register-vehicle', verifyToken, async (req, res) => {
+app.post('/api/driver/register-vehicle', async (req, res) => {
   try {
     const { number, driverName, from, to, busNumber, route } = req.body;
     
@@ -232,14 +244,6 @@ app.post('/api/driver/register-vehicle', verifyToken, async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         error: "Bus number and driver name required" 
-      });
-    }
-
-    // 🔒 Verify driver is registering their own vehicle
-    if (driverName !== req.user.name) {
-      return res.status(403).json({
-        success: false,
-        error: "Can only register your own vehicle"
       });
     }
 
@@ -280,6 +284,41 @@ app.post('/api/driver/register-vehicle', verifyToken, async (req, res) => {
   }
 });
 
+// ✅ STOPS ENDPOINTS
+app.post('/api/stops', async (req, res) => {
+  try {
+    const { name, lat, lng } = req.body;
+    
+    if (!name || lat == null || lng == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Name, latitude and longitude required" 
+      });
+    }
+
+    const stop = await Stop.create({ name, lat, lng });
+
+    res.status(201).json({
+      success: true,
+      message: "Stop created successfully",
+      stop
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/stops', async (req, res) => {
+  try {
+    const stops = await Stop.find();
+    res.json({
+      success: true,
+      stops
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ✅ ROUTES ENDPOINTS
 app.post('/api/routes', async (req, res) => {
@@ -321,23 +360,25 @@ app.get('/api/routes', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-// ✅ GET BUSES BY ROUTE - Enhanced with stop detection
+// ✅ GET BUSES BY ROUTE
 app.get('/api/routes/:routeId/buses', async (req, res) => {
   try {
-    const routeData = await stopDetectionService.getRouteBusesStatus(req.params.routeId);
-    
-    if (!routeData.route) {
-      return res.status(404).json({
-        success: false,
-        error: "Route not found"
-      });
-    }
+    const buses = await Bus.find({
+      route: req.params.routeId,
+      isActive: true
+    }).populate('route');
 
     res.json({
       success: true,
-      route: routeData.route,
-      totalBuses: routeData.buses.length,
-      buses: routeData.buses
+      totalBuses: buses.length,
+      buses: buses.map(bus => ({
+        _id: bus._id,
+        busNumber: bus.busNumber,
+        driverName: bus.driverName,
+        currentStop: bus.route?.stops[bus.currentStopIndex],
+        isLive: isBusLive(bus.location.lastUpdated),
+        lastUpdated: bus.location.lastUpdated
+      }))
     });
 
   } catch (err) {
@@ -346,16 +387,86 @@ app.get('/api/routes/:routeId/buses', async (req, res) => {
 });
 
 
-// ✅ DRIVER LOCATION UPDATE - PROTECTED + OWNERSHIP VERIFY
-app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
+// ✅ VEHICLE LOCATION UPDATE (Driver app) - FIXED
+app.put('/vehicles/:vehicleId/location', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const { lat, lng, bearing } = req.body;
+    
+    console.log(`🚌 LOCATION UPDATE: Vehicle ${vehicleId} -> Lat: ${lat}, Lng: ${lng}`);
+    
+    if (lat == null || lng == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Latitude and longitude required" 
+      });
+    }
+
+    // Try by ObjectId first, then by bus number
+    let bus = await Bus.findById(vehicleId);
+    
+    if (!bus) {
+      // If not found by ID, try by bus number
+      bus = await Bus.findOne({ busNumber: vehicleId });
+    }
+    
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Vehicle not found" 
+      });
+    }
+
+    // Update location
+    bus.location.latitude = lat;
+    bus.location.longitude = lng;
+    bus.location.lastUpdated = new Date();
+    await bus.save();
+
+    console.log(`✅ Bus ${bus.busNumber} location updated in database`);
+
+    // Emit to passengers - Multiple channels
+    io.emit('locationUpdate', {
+      lat,
+      lng,
+      bearing: bearing || 0,
+      busId: vehicleId,
+      busNumber: bus.busNumber
+    });
+
+    // Also emit to bus-specific room
+    io.emit(`bus-${bus.busNumber}`, {
+      type: 'location_update',
+      busNumber: bus.busNumber,
+      location: {
+        latitude: lat,
+        longitude: lng,
+        lastUpdated: new Date()
+      }
+    });
+
+    console.log(`📡 Emitted location update to passengers`);
+
+    res.json({
+      success: true,
+      message: "Location updated successfully",
+      busNumber: bus.busNumber
+    });
+  } catch (err) {
+    console.error(`❌ LOCATION UPDATE ERROR: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ DRIVER LOCATION UPDATE - Missing endpoint for Flutter driver app
+app.put('/bus/:busNumber/location', async (req, res) => {
   try {
     const { busNumber } = req.params;
-    const { lat, lng, bearing, speed } = req.body;
+    const { lat, lng, bearing } = req.body;
     
     console.log(`🚌 DRIVER GPS UPDATE: Bus ${busNumber}`);
     console.log(`   Location: ${lat}, ${lng}`);
     console.log(`   Bearing: ${bearing || 0}`);
-    console.log(`   Speed: ${speed || 0}`);
     
     if (lat == null || lng == null) {
       return res.status(400).json({ 
@@ -365,7 +476,7 @@ app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
     }
 
     // Find bus by busNumber
-    const bus = await Bus.findOne({ busNumber: busNumber }).populate('route');
+    const bus = await Bus.findOne({ busNumber: busNumber });
     if (!bus) {
       console.log(`❌ Bus ${busNumber} not found`);
       return res.status(404).json({ 
@@ -374,105 +485,72 @@ app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
       });
     }
 
-    // 🔒 CRITICAL: Verify driver owns this bus
-    if (bus.driverName !== req.user.name) {
-      return res.status(403).json({
-        success: false,
-        error: "Unauthorized to update this bus"
-      });
-    }
+    // Update location in database
+    bus.location.latitude = lat;
+    bus.location.longitude = lng;
+    bus.location.lastUpdated = new Date();
+    await bus.save();
 
-    // Use stop detection service
-    const result = await stopDetectionService.detectAndUpdateBusStop(
-      bus._id,
+    console.log(`✅ Bus ${bus.busNumber} GPS updated in database`);
+
+    // 📡 Emit to passengers - Multiple channels for compatibility
+    const locationData = {
       lat,
       lng,
-      { speed, heading: bearing }
-    );
+      bearing: bearing || 0,
+      busId: bus._id,
+      busNumber: bus.busNumber,
+      timestamp: new Date()
+    };
 
-    if (result.updated && result.stopUpdate) {
-      // Emit stop-specific updates using room-based emission
-      switch (result.stopUpdate.type) {
-        case 'stop_reached':
-          io.to(`bus-${busNumber}`).emit('stop-update', {
-            type: 'stop_reached',
-            currentStop: result.stopUpdate.currentStop,
-            previousStop: result.stopUpdate.previousStop,
-            nextStop: result.stopUpdate.nextStop,
-            eta: result.stopUpdate.eta,
-            status: 'At Stop',
-            timestamp: new Date()
-          });
-          break;
-          
-        case 'between_stops':
-          io.to(`bus-${busNumber}`).emit('stop-update', {
-            type: 'between_stops',
-            fromStop: result.stopUpdate.fromStop,
-            toStop: result.stopUpdate.toStop,
-            progress: result.stopUpdate.progress,
-            eta: result.stopUpdate.eta,
-            status: 'En Route',
-            timestamp: new Date()
-          });
-          break;
-          
-        case 'off_route':
-          io.to(`bus-${busNumber}`).emit('stop-update', {
-            type: 'off_route',
-            message: result.stopUpdate.message,
-            status: 'Off Route',
-            timestamp: new Date()
-          });
-          break;
-      }
-      
-      // Always emit location update using room-based emission
-      io.to(`bus-${busNumber}`).emit('location-update', {
-        busNumber: busNumber,
+    // Channel 1: General location update
+    io.emit('locationUpdate', locationData);
+    
+    // Channel 2: Bus-specific room
+    io.emit(`bus-${bus.busNumber}`, {
+      type: 'location_update',
+      busNumber: bus.busNumber,
+      location: {
         latitude: lat,
         longitude: lng,
-        speed: speed || 0,
-        heading: bearing || 0,
-        timestamp: new Date()
-      });
+        lastUpdated: new Date()
+      }
+    });
 
-      console.log(`✅ Bus ${busNumber} GPS updated with stop detection`);
-      console.log(`   Stop Status: ${result.stopUpdate?.type || 'No change'}`);
-    }
-
-    // Get formatted bus data
-    const busData = result.busData || await stopDetectionService.formatBusData(bus);
+    console.log(`📡 GPS data sent to passengers`);
+    console.log(`   Channels: locationUpdate, bus-${bus.busNumber}`);
 
     res.json({
       success: true,
-      message: result.updated ? "GPS location updated with stop detection" : "GPS location updated",
-      busNumber: busNumber,
-      stopUpdate: result.stopUpdate,
-      bus: busData
+      message: "GPS location updated successfully",
+      busNumber: bus.busNumber,
+      location: {
+        latitude: lat,
+        longitude: lng,
+        lastUpdated: new Date()
+      }
     });
     
   } catch (err) {
-    console.error(` GPS Update Error: ${err.message}`);
+    console.error(`❌ GPS Update Error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// DRIVER: Update bus status (End Trip) - NEW ENDPOINT
-app.put('/api/driver/bus/:busNumber/status', verifyToken, async (req, res) => {
+// ✅ DRIVER: Update bus status (End Trip) - NEW ENDPOINT
+app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
   try {
     const { isActive, tripEnded } = req.body;
     const { busNumber } = req.params;
     
-    console.log(` STATUS UPDATE: Bus ${busNumber} -> isActive: ${isActive}, tripEnded: ${tripEnded}`);
+    console.log(`🚌 STATUS UPDATE: Bus ${busNumber} -> isActive: ${isActive}, tripEnded: ${tripEnded}`);
     
-    // Verify driver owns this bus
-    const bus = await Bus.findOne({ busNumber: busNumber, driverName: req.user.name });
+    const bus = await Bus.findOne({ busNumber: busNumber });
     
     if (!bus) {
       return res.status(404).json({ 
         success: false, 
-        error: "Bus not found or unauthorized" 
+        error: "Bus not found" 
       });
     }
     
@@ -483,15 +561,23 @@ app.put('/api/driver/bus/:busNumber/status', verifyToken, async (req, res) => {
     }
     await bus.save();
 
-    // Emit status update to bus room only
-    io.to(`bus-${busNumber}`).emit('status-update', {
+    // Emit status update to all passengers
+    io.emit(`bus-${busNumber}`, {
+      type: 'status_update',
       busNumber: bus.busNumber,
       isActive: bus.isActive,
-      status: bus.isActive ? "LIVE" : "OFFLINE",
+      status: bus.isActive ? "🟢 LIVE" : "🔴 OFFLINE",
       lastUpdated: new Date()
     });
 
-    console.log(` Bus ${busNumber} status updated to ${bus.isActive ? 'ACTIVE' : 'INACTIVE'}`);
+    // General status update
+    io.emit('busStatusUpdate', {
+      busNumber: bus.busNumber,
+      isActive: bus.isActive,
+      status: bus.isActive ? "LIVE" : "OFFLINE"
+    });
+
+    console.log(`✅ Bus ${bus.busNumber} status updated to ${bus.isActive ? 'ACTIVE' : 'INACTIVE'}`);
 
     res.json({
       success: true,
@@ -506,19 +592,127 @@ app.put('/api/driver/bus/:busNumber/status', verifyToken, async (req, res) => {
   }
 });
 
+// ✅ SOCKET.IO - Handle driver location updates
+io.on('driver-location-update', (data) => {
+  console.log('📍 Driver GPS via Socket:', data);  
+  // Broadcast to all passengers
+  io.emit('locationUpdate', data);
+  io.emit(`bus-${data.busNumber}`, {
+    type: 'location_update',
+    busNumber: data.busNumber,
+    location: {
+      latitude: data.lat,
+      longitude: data.lng,
+      lastUpdated: new Date()
+    }
+  });
+});
 
+console.log('🚌 Driver GPS endpoints loaded');
 
-// ✅ HOME PAGE - Clean startup-grade API
+// ✅ LEGACY SEARCH ENDPOINT (For Flutter App)
+app.get('/vehicles/search', async (req, res) => {
+  try {
+    const { number } = req.query;
+    console.log(`🔍 LEGACY SEARCH: ${number}`);
+    
+    if (!number) {
+      // If no number provided, return all active buses
+      const buses = await Bus.find({ isActive: true }).populate('route');
+      
+      const vehicles = buses.map(bus => {
+        const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+        
+        return {
+          _id: bus._id,
+          number: bus.busNumber,
+          currentLocation: {
+            lat: bus.location.latitude,
+            lng: bus.location.longitude
+          },
+          hasValidLocation: hasValidLocation,
+          route: bus.route,
+          driverName: bus.driverName || "Driver",
+          isActive: bus.isActive,
+          status: bus.status,
+          currentPassengers: bus.currentPassengers || 0,
+          capacity: bus.capacity || 50,
+          lastUpdated: bus.location.lastUpdated
+        };
+      });
+
+      console.log(`📱 RETURNING ALL ${vehicles.length} VEHICLES`);
+      return res.json({
+        success: true,
+        vehicles: vehicles
+      });
+    }
+
+    // Case-insensitive search for bus number
+    const buses = await Bus.find({ 
+      busNumber: { $regex: new RegExp('^' + number + '$', 'i') },
+      isActive: true 
+    }).populate('route');
+    
+    console.log(`🚌 BUSES FOUND: ${buses.length}`);
+    
+    if (buses.length === 0) {
+      return res.json({ success: false, vehicles: [] });
+    }
+
+    // Map all found buses to vehicles format
+    const vehicles = buses.map(bus => {
+      const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
+      
+      return {
+        _id: bus._id,
+        number: bus.busNumber,
+        currentLocation: {
+          lat: bus.location.latitude,
+          lng: bus.location.longitude
+        },
+        hasValidLocation: hasValidLocation,
+        route: bus.route,
+        driverName: bus.driverName || "Driver",
+        isActive: bus.isActive,
+        status: bus.status,
+        currentPassengers: bus.currentPassengers || 0,
+        capacity: bus.capacity || 50,
+        lastUpdated: bus.location.lastUpdated
+      };
+    });
+
+    console.log(`📱 RETURNING ${vehicles.length} VEHICLES`);
+
+    res.json({
+      success: true,
+      vehicles: vehicles
+    });
+    
+  } catch (err) {
+    console.error(`❌ LEGACY SEARCH ERROR: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ HOME PAGE - All available buses
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: "🚌 Startup-Grade Stop-Based Bus Tracker API",
-    coreEndpoints: {
-      login: "POST /api/login",
-      signup: "POST /api/signup",
-      updateLocation: "PUT /api/bus/:busNumber/location",
-      trackBus: "GET /bus/track/:busNumber",
-      activeBuses: "GET /buses"
+    message: "🚌 Live Bus Tracker Backend",
+    features: [
+      "📱 Live location tracking",
+      "📍 Current stop display", 
+      "🗺️ Real-time updates",
+      "🔍 Bus number search"
+    ],
+    endpoints: {
+      track: "GET /bus/track/:busNumber",
+      updateLocation: "PUT /bus/location/:busNumber",
+      updateStop: "PUT /bus/stop/:busNumber",
+      allBuses: "GET /buses",
+      addBus: "POST /bus/add",
+      legacySearch: "GET /vehicles/search?number=UP15"
     }
   });
 });
@@ -544,26 +738,33 @@ app.get('/debug/buses', async (req, res) => {
   }
 });
 
-// ✅ GET ALL BUSES (For selection) - Enhanced with stop detection
+// ✅ GET ALL BUSES (For selection) - ALL LIVE BUSES
 app.get('/buses', async (req, res) => {
   try {
     const buses = await Bus.find({ isActive: true }).populate('route');
     
-    // Use stop detection service to format bus data
-    const busesWithStatus = await Promise.all(
-      buses.map(bus => stopDetectionService.formatBusData(bus))
-    );
-    
     res.json({
       success: true,
-      buses: busesWithStatus
+      buses: buses.map(bus => ({
+        _id: bus._id,
+        busNumber: bus.busNumber,
+        driverName: bus.driverName || "Driver",
+        routeName: bus.route?.routeName || "No Route",
+        currentStop: bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route",
+        isLive: isBusLive(bus.location.lastUpdated), // Check if bus is live
+        lastSeen: bus.location.lastUpdated,
+        location: bus.location,
+        status: bus.status,
+        currentPassengers: bus.currentPassengers || 0,
+        capacity: bus.capacity || 50
+      }))
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ TRACK SPECIFIC BUS (Main endpoint) - Enhanced with stop detection
+// ✅ TRACK SPECIFIC BUS (Main endpoint)
 app.get('/bus/track/:busNumber', async (req, res) => {
   try {
     const bus = await Bus.findOne({ busNumber: req.params.busNumber })
@@ -576,18 +777,143 @@ app.get('/bus/track/:busNumber', async (req, res) => {
       });
     }
 
-    // Use stop detection service to get formatted data
-    const busData = await stopDetectionService.formatBusData(bus);
+    const currentStop = bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route";
+    const nextStop = bus.route ? bus.route.stops[bus.currentStopIndex + 1] : "No Route";
+    const isLive = bus.location.lastUpdated > new Date(Date.now() - 2 * 60 * 1000); // Last 2 minutes
 
     res.json({
       success: true,
-      bus: busData
+      bus: {
+        busNumber: bus.busNumber,
+        driverName: bus.driverName || "Driver",
+        currentStop: currentStop,
+        nextStop: nextStop || "Last Stop",
+        location: {
+          latitude: bus.location.latitude,
+          longitude: bus.location.longitude,
+          lastUpdated: bus.location.lastUpdated
+        },
+        status: isLive ? "🟢 LIVE" : "🔴 OFFLINE",
+        route: {
+          name: bus.route?.routeName || "No Route",
+          totalStops: bus.route?.stops?.length || 0,
+          currentIndex: bus.currentStopIndex
+        }
+      }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// ✅ DRIVER: Update live location (Phone GPS)
+app.put('/bus/location/:busNumber', async (req, res) => {
+  try {
+    const { latitude, longitude, driverName } = req.body;
+    
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Latitude and longitude required" 
+      });
+    }
+
+    const bus = await Bus.findOne({ busNumber: req.params.busNumber });
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Bus not found" 
+      });
+    }
+
+    // Update bus location
+    bus.location.latitude = latitude;
+    bus.location.longitude = longitude;
+    bus.location.lastUpdated = new Date();
+    if (driverName) bus.driverName = driverName;
+    
+    await bus.save();
+
+    // Emit real-time update to all passengers
+    io.emit(`bus-${req.params.busNumber}`, {
+      type: 'location_update',
+      busNumber: bus.busNumber,
+      location: {
+        latitude,
+        longitude,
+        lastUpdated: new Date()
+      }
+    });
+
+    // Legacy support for old Flutter app
+    io.emit(`locationUpdate`, {
+      lat: latitude,
+      lng: longitude,
+      busId: bus._id
+    });
+
+    res.json({
+      success: true,
+      message: "Location updated successfully",
+      location: {
+        latitude,
+        longitude,
+        lastUpdated: new Date()
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ DRIVER: Update current stop
+app.put('/bus/stop/:busNumber', async (req, res) => {
+  try {
+    const { stopIndex } = req.body;
+    
+    if (stopIndex == null || stopIndex < 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Valid stop index required" 
+      });
+    }
+
+    const bus = await Bus.findOne({ busNumber: req.params.busNumber })
+      .populate('route');
+    
+    if (!bus) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Bus not found" 
+      });
+    }
+
+    bus.currentStopIndex = stopIndex;
+    await bus.save();
+
+    const currentStop = bus.route ? bus.route.stops[stopIndex] : "Unknown";
+    const nextStop = bus.route ? bus.route.stops[stopIndex + 1] : "Unknown";
+
+    // Emit real-time stop update
+    io.emit(`bus-${req.params.busNumber}`, {
+      type: 'stop_update',
+      busNumber: bus.busNumber,
+      currentStop,
+      nextStop,
+      stopIndex
+    });
+
+    res.json({
+      success: true,
+      message: "Bus stop updated",
+      currentStop,
+      nextStop,
+      stopIndex
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ----------------- SOCKET.IO FOR REAL-TIME UPDATES -----------------
 io.on('connection', (socket) => {
@@ -609,14 +935,16 @@ io.on('connection', (socket) => {
   socket.on('driver-location-update', (data) => {
     console.log('📍 Driver location update received:', data);
     
-    // Use room-based emission only
-    io.to(`bus-${data.busNumber}`).emit('location-update', {
+    // Broadcast to all passengers
+    io.emit('locationUpdate', data);
+    io.emit(`bus-${data.busNumber}`, {
+      type: 'location_update',
       busNumber: data.busNumber,
-      latitude: data.lat,
-      longitude: data.lng,
-      speed: data.speed || 0,
-      heading: data.bearing || 0,
-      timestamp: new Date()
+      location: {
+        latitude: data.lat,
+        longitude: data.lng,
+        lastUpdated: new Date()
+      }
     });
   });
 
@@ -633,20 +961,9 @@ io.on('connection', (socket) => {
 
 // ----------------- START SERVER -----------------
 server.listen(PORT, () => {
-  console.log(`🚀 Production-Grade Bus Tracker Backend Running on port ${PORT}`);
+  console.log(`🚌 Live Bus Tracker Backend Running on port ${PORT}`);
   console.log(`📍 Track Bus: http://localhost:${PORT}/bus/track/UP15`);
   console.log(`📱 Live Updates: Socket.IO connected`);
   console.log(`🔗 All Buses: http://localhost:${PORT}/buses`);
-  console.log(`✅ Status Update: PUT /api/driver/bus/:busNumber/status`);
-  console.log(`🎯 Enterprise Security:`);
-  console.log(`   ✅ JWT Protected Endpoints: All driver endpoints secured`);
-  console.log(`   ✅ Ownership Verification: Drivers can only update their buses`);
-  console.log(`   ✅ Room-based Socket.IO: No global emissions`);
-  console.log(`   ✅ Automatic Stop Detection: 100m radius`);
-  console.log(`   ✅ Real-time ETA Calculation: Distance + Speed`);
-  console.log(`   ✅ Production Models: GeoJSON + 2dsphere`);
-  console.log(`   ✅ Environment Validation: Fails fast on missing secrets`);
-  console.log(`   ✅ Zero Legacy Code: Clean startup-grade`);
-  console.log(`🔒 Ready for Production Deployment`);
+  console.log(`✅ Bus Status Update Endpoint: /api/driver/bus/:busNumber/status`);
 });
-
