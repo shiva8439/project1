@@ -194,13 +194,13 @@ busSchema.index({ driver: 1 }); // New: Index for driver queries
 const Bus = mongoose.model('Bus', busSchema);
 
 // ----------------- HELPER FUNCTIONS -----------------
-// Check if bus is live (updated in last 5 minutes)
+// Check if bus is live (updated in last 10 minutes)
 function isBusLive(lastUpdated) {
   if (!lastUpdated) return false;
   const now = new Date();
   const lastUpdate = new Date(lastUpdated);
   const diffMinutes = (now - lastUpdate) / (1000 * 60);
-  return diffMinutes <= 5; // Live if updated within last 5 minutes
+  return diffMinutes <= 10; // Live if updated within last 10 minutes
 }
 
 // ----------------- API ROUTES -----------------
