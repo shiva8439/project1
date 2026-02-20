@@ -175,7 +175,6 @@ const Route = mongoose.model('Route', routeSchema);
 const busSchema = new mongoose.Schema({
   busNumber: { type: String, unique: true },
   driverName: String,
-  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // New: Direct driver reference
   route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
   currentStopIndex: { type: Number, default: 0 },
   location: {
