@@ -35,12 +35,51 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// Route Model
-const routeSchema = new mongoose.Schema({
-  routeName: String,
-  routeNumber: { type: String, unique: true, sparse: true }, // sparse: allows null
-  stops: [String]
+// Stop Model (unchanged, but very important)
+const stopSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  // optional: code, landmark, type (depot, major, minor), etc.
 });
+const Stop = mongoose.model('Stop', stopSchema);
+
+// Improved Route Model
+const routeSchema = new mongoose.Schema({
+  routeName: {
+    type: String,
+    required: true,
+    trim: true,
+    minlength: 3
+  },
+  routeNumber: {
+    type: String,
+    unique: true,
+    sparse: true,           // allows documents without routeNumber
+    uppercase: true
+  },
+  stops: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Stop',
+    required: true
+  }],
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'   // admin / staff who created it (optional)
+  }
+}, { timestamps: true });
+
+routeSchema.pre('save', function(next) {
+  if (this.isNew && !this.routeNumber) {
+    this.routeNumber = `R${Date.now().toString().slice(-6).toUpperCase()}`;
+  }
+  next();
+});
+
 const Route = mongoose.model('Route', routeSchema);
 
 // Bus Model (with live location)
@@ -58,14 +97,6 @@ const busSchema = new mongoose.Schema({
   lastTripEnded: { type: Date }
 });
 const Bus = mongoose.model('Bus', busSchema);
-
-// Stop Model
-const stopSchema = new mongoose.Schema({
-  name: String,
-  lat: Number,
-  lng: Number
-});
-const Stop = mongoose.model('Stop', stopSchema);
 
 // ----------------- HELPER FUNCTIONS -----------------
 // Check if bus is live (updated in last 2 minutes)
@@ -238,7 +269,7 @@ app.get('/api/driver/my-vehicle', async (req, res) => {
 
 app.post('/api/driver/register-vehicle', async (req, res) => {
   try {
-    const { number, driverName, from, to, busNumber, route } = req.body;
+    const { number, driverName, from, to, busNumber, routeId } = req.body;
     
     if (!number || !driverName) {
       return res.status(400).json({ 
@@ -247,19 +278,55 @@ app.post('/api/driver/register-vehicle', async (req, res) => {
       });
     }
 
-    // Create route
-    const routeStops = [from || "Start", to || "End"];
-    const newRoute = await Route.create({
-      routeName: route || `${from} - ${to}`,
-      routeNumber: `ROUTE-${Date.now()}`, // Generate unique route number
-      stops: routeStops
-    });
+    let routeIdToUse;
+
+    if (routeId) {
+      // Use existing route
+      routeIdToUse = routeId;
+    } else if (from && to) {
+      // Quick route from from → to
+      const stops = await Stop.find({ name: { $in: [from, to] } });
+      
+      if (stops.length < 2) {
+        // Create stops automatically if they don't exist
+        const fromStop = await Stop.findOneAndUpdate(
+          { name: from },
+          { name: from, lat: 0, lng: 0 },
+          { upsert: true, new: true }
+        );
+        const toStop = await Stop.findOneAndUpdate(
+          { name: to },
+          { name: to, lat: 0, lng: 0 },
+          { upsert: true, new: true }
+        );
+        
+        const quickRoute = await Route.create({
+          routeName: `${from} → ${to}`,
+          routeNumber: `QUICK-${Date.now().toString().slice(-5)}`,
+          stops: [fromStop._id, toStop._id]
+        });
+        routeIdToUse = quickRoute._id;
+      } else {
+        // Use existing stops
+        const quickRoute = await Route.create({
+          routeName: `${from} → ${to}`,
+          routeNumber: `QUICK-${Date.now().toString().slice(-5)}`,
+          stops: stops.map(s => s._id)
+        });
+        routeIdToUse = quickRoute._id;
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "Either routeId or both 'from' and 'to' locations required"
+      });
+    }
 
     // Create bus
     const bus = await Bus.create({
       busNumber: number,
       driverName,
-      route: newRoute._id,
+      route: routeIdToUse,
       currentStopIndex: 0,
       isActive: true,
       location: {
@@ -269,6 +336,8 @@ app.post('/api/driver/register-vehicle', async (req, res) => {
       }
     });
 
+    const populatedBus = await Bus.findById(bus._id).populate('route');
+
     res.status(201).json({
       success: true,
       message: "Vehicle registered successfully",
@@ -276,7 +345,7 @@ app.post('/api/driver/register-vehicle', async (req, res) => {
         _id: bus._id,
         number: bus.busNumber,
         driverName: bus.driverName,
-        route: newRoute
+        route: populatedBus.route
       }
     });
   } catch (err) {
@@ -321,38 +390,89 @@ app.get('/api/stops', async (req, res) => {
 });
 
 // ✅ ROUTES ENDPOINTS
+// ────────────────────────────────────────────────
+//  POST /api/routes           → Create new route (admin / staff)
+// ────────────────────────────────────────────────
 app.post('/api/routes', async (req, res) => {
   try {
-    const { routeName, stops } = req.body;
+    const { routeName, routeNumber, stopIds } = req.body;
 
-    const route = await Route.create({
+    if (!routeName || !Array.isArray(stopIds) || stopIds.length < 2) {
+      return res.status(400).json({
+        success: false,
+        error: "routeName and at least 2 stopIds required"
+      });
+    }
+
+    // Validate all stops exist
+    const stops = await Stop.find({ _id: { $in: stopIds } });
+    if (stops.length !== stopIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: "One or more stop IDs are invalid"
+      });
+    }
+
+    const routeData = {
       routeName,
-      routeNumber: `ROUTE-${Date.now()}`,  // 👈 Yaha add karo
-      stops
-    });
+      stops: stopIds,
+    };
+
+    if (routeNumber) {
+      routeData.routeNumber = routeNumber.toUpperCase().trim();
+    }
+
+    const route = await Route.create(routeData);
+
+    const populated = await Route.findById(route._id).populate('stops');
 
     res.status(201).json({
       success: true,
-      route
+      message: "Route created successfully",
+      route: {
+        _id: populated._id,
+        routeName: populated.routeName,
+        routeNumber: populated.routeNumber,
+        stops: populated.stops.map(s => ({
+          _id: s._id,
+          name: s.name,
+          lat: s.lat,
+          lng: s.lng
+        })),
+        stopCount: populated.stops.length
+      }
     });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ success: false, error: "Route number already exists" });
+    }
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ GET ALL ROUTES (Passenger ke liye)
+// ────────────────────────────────────────────────
+//  GET /api/routes            → List all routes (for passengers)
+// ────────────────────────────────────────────────
 app.get('/api/routes', async (req, res) => {
   try {
-    const routes = await Route.find();
+    const routes = await Route.find({ isActive: true })
+      .populate('stops', 'name lat lng')
+      .select('-createdBy -updatedAt -__v');
 
     res.json({
       success: true,
-      totalRoutes: routes.length,
-      routes: routes.map(route => ({
-        _id: route._id,
-        routeName: route.routeName,
-        totalStops: route.stops.length,
-        stops: route.stops
+      count: routes.length,
+      routes: routes.map(r => ({
+        _id: r._id,
+        routeName: r.routeName,
+        routeNumber: r.routeNumber || '(no number)',
+        stops: r.stops.map(s => ({
+          name: s.name,
+          lat: s.lat,
+          lng: s.lng
+        })),
+        stopCount: r.stops.length
       }))
     });
 
@@ -360,25 +480,64 @@ app.get('/api/routes', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-// ✅ GET BUSES BY ROUTE
+
+// ────────────────────────────────────────────────
+//  GET /api/routes/:id        → Single route detail
+// ────────────────────────────────────────────────
+app.get('/api/routes/:id', async (req, res) => {
+  try {
+    const route = await Route.findById(req.params.id)
+      .populate('stops', 'name lat lng');
+
+    if (!route) {
+      return res.status(404).json({ success: false, error: "Route not found" });
+    }
+
+    res.json({
+      success: true,
+      route: {
+        _id: route._id,
+        routeName: route.routeName,
+        routeNumber: route.routeNumber,
+        stops: route.stops,
+        stopCount: route.stops.length
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────
+//  GET /api/routes/:routeId/buses   (already good, but improved)
+// ────────────────────────────────────────────────
 app.get('/api/routes/:routeId/buses', async (req, res) => {
   try {
     const buses = await Bus.find({
       route: req.params.routeId,
       isActive: true
-    }).populate('route');
+    })
+    .populate({
+      path: 'route',
+      select: 'routeName routeNumber stops'
+    });
+
+    const result = buses.map(bus => ({
+      _id: bus._id,
+      busNumber: bus.busNumber,
+      driverName: bus.driverName || "Unknown",
+      currentStop: bus.route?.stops?.[bus.currentStopIndex] || null,
+      isLive: isBusLive(bus.location?.lastUpdated),
+      lastUpdated: bus.location?.lastUpdated,
+      status: bus.isActive ? "ACTIVE" : "INACTIVE"
+    }));
 
     res.json({
       success: true,
-      totalBuses: buses.length,
-      buses: buses.map(bus => ({
-        _id: bus._id,
-        busNumber: bus.busNumber,
-        driverName: bus.driverName,
-        currentStop: bus.route?.stops[bus.currentStopIndex],
-        isLive: isBusLive(bus.location.lastUpdated),
-        lastUpdated: bus.location.lastUpdated
-      }))
+      routeId: req.params.routeId,
+      totalBuses: result.length,
+      buses: result
     });
 
   } catch (err) {
