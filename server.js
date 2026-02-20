@@ -1232,24 +1232,8 @@ app.use((err, req, res, next) => {
 });
 
 // ----------------- SOCKET.IO FOR REAL-TIME UPDATES -----------------
-// Socket.IO JWT Authentication middleware (disabled for now)
-// io.use(async (socket, next) => {
-//   try {
-//     const token = socket.handshake.auth.token;
-//     if (!token) {
-//       return next(new Error('Authentication error'));
-//     }
-//     
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     socket.user = decoded;
-//     next();
-//   } catch (err) {
-//     next(new Error('Authentication error'));
-//   }
-// });
-
 io.on('connection', (socket) => {
-  console.log(`📱 User connected: ${socket.id}`);
+  console.log('📱 User connected:', socket.id);
 
   // Join bus room for real-time updates
   socket.on('join-bus', (busNumber) => {
@@ -1267,18 +1251,8 @@ io.on('connection', (socket) => {
   socket.on('driver-location-update', (data) => {
     console.log('📍 Driver location update received:', data);
     
-    // Broadcast to all passengers with proper format
-    const locationData = {
-      lat: data.lat,
-      lng: data.lng,
-      bearing: data.bearing || 0,
-      busId: data.busId || data.busNumber,
-      busNumber: data.busNumber,
-      timestamp: new Date()
-    };
-    
-    // Multiple channels for Flutter compatibility
-    io.emit('locationUpdate', locationData);
+    // Broadcast to all passengers
+    io.emit('locationUpdate', data);
     io.emit(`bus-${data.busNumber}`, {
       type: 'location_update',
       busNumber: data.busNumber,
@@ -1288,8 +1262,16 @@ io.on('connection', (socket) => {
         lastUpdated: new Date()
       }
     });
-    
-    console.log(`📡 Location broadcasted to passengers for bus ${data.busNumber}`);
+  });
+
+  // Leave bus room
+  socket.on('leave-bus', (busNumber) => {
+    socket.leave(`bus-${busNumber}`);
+    console.log(`🚌 User left bus ${busNumber} room`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('📱 User disconnected:', socket.id);
   });
 });
 
