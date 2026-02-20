@@ -107,11 +107,32 @@ async function generateTokens(user) {
 // ----------------- MODELS -----------------
 // User Model (for authentication)
 const userSchema = new mongoose.Schema({
-  email: { type: String, unique: true },
-  password: String,
-  name: String,
-  role: { type: String, default: 'driver' }
-});
+  email: { 
+    type: String, 
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Invalid email format']
+  },
+  password: { 
+    type: String, 
+    required: [true, 'Password is required'],
+    minlength: [6, 'Password must be at least 6 characters']
+  },
+  name: { 
+    type: String, 
+    required: [true, 'Name is required'],
+    trim: true,
+    minlength: [2, 'Name must be at least 2 characters']
+  },
+  role: { 
+    type: String, 
+    default: 'driver',
+    enum: ['driver', 'admin', 'passenger']
+  }
+}, { timestamps: true });
+
 const User = mongoose.model('User', userSchema);
 
 // Refresh Token Model for database storage
@@ -264,6 +285,16 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (err) {
     console.error("Login error:", err);
+    
+    // Handle specific errors
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ 
+        success: false, 
+        error: "Validation error: " + errors.join(', ')
+      });
+    }
+    
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -272,10 +303,29 @@ app.post('/api/signup', async (req, res) => {
   try {
     const { email, password, role = 'driver', name } = req.body;
     
+    console.log(`Signup attempt for: ${email}, name: ${name}`);
+    
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
         error: "Email and password required" 
+      });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid email format" 
+      });
+    }
+
+    // Password validation
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Password must be at least 6 characters" 
       });
     }
 
@@ -290,12 +340,16 @@ app.post('/api/signup', async (req, res) => {
     // Hash password before saving
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+    console.log("Creating user with data:", { email, name, role });
+
     const user = await User.create({
       email,
       password: hashedPassword,
       name: name || email.split('@')[0],
       role
     });
+
+    console.log("User created successfully:", user._id);
 
     res.status(201).json({
       success: true,
@@ -308,6 +362,26 @@ app.post('/api/signup', async (req, res) => {
       }
     });
   } catch (err) {
+    console.error("Signup error details:", err);
+    
+    // Handle specific MongoDB validation errors
+    if (err.name === 'ValidationError') {
+      const errors = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ 
+        success: false, 
+        error: "Validation error: " + errors.join(', ')
+      });
+    }
+    
+    if (err.code === 11000) {
+      // Duplicate key error
+      const field = Object.keys(err.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        error: `${field} already exists` 
+      });
+    }
+    
     res.status(500).json({ success: false, error: err.message });
   }
 });
