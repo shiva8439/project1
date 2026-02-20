@@ -1214,8 +1214,18 @@ io.on('connection', (socket) => {
   socket.on('driver-location-update', (data) => {
     console.log('📍 Driver location update received:', data);
     
-    // Broadcast to all passengers
-    io.emit('locationUpdate', data);
+    // Broadcast to all passengers with proper format
+    const locationData = {
+      lat: data.lat,
+      lng: data.lng,
+      bearing: data.bearing || 0,
+      busId: data.busId || data.busNumber,
+      busNumber: data.busNumber,
+      timestamp: new Date()
+    };
+    
+    // Multiple channels for Flutter compatibility
+    io.emit('locationUpdate', locationData);
     io.emit(`bus-${data.busNumber}`, {
       type: 'location_update',
       busNumber: data.busNumber,
@@ -1225,34 +1235,9 @@ io.on('connection', (socket) => {
         lastUpdated: new Date()
       }
     });
+    
+    console.log(`📡 Location broadcasted to passengers for bus ${data.busNumber}`);
   });
-
-  // Leave bus room
-  socket.on('leave-bus', (busNumber) => {
-    socket.leave(`bus-${busNumber}`);
-    console.log(`🚌 User left bus ${busNumber} room`);
-  });
-
-  socket.on('disconnect', () => {
-    console.log('📱 User disconnected:', socket.id);
-  });
-});
-
-// ✅ SINGLE driver-location-update event (no duplicates)
-io.on('driver-location-update', (data) => {
-  console.log('📍 Driver location update received:', data);  
-  
-  // Broadcast to all passengers using room-based emission only
-  io.to(`bus-${data.busNumber}`).emit('location-update', {
-    busNumber: data.busNumber,
-    latitude: data.lat,
-    longitude: data.lng,
-    speed: data.speed || 0,
-    heading: data.bearing || 0,
-    timestamp: new Date()
-  });
-  
-  console.log(`📡 Emitted location update to room: bus-${data.busNumber}`);
 });
 
 // ----------------- START SERVER -----------------
