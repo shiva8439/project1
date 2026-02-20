@@ -1,15 +1,17 @@
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const http = require('http');
+const { Server } = require('socket.io');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const saltRounds = 10;
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -192,13 +194,13 @@ busSchema.index({ driver: 1 }); // New: Index for driver queries
 const Bus = mongoose.model('Bus', busSchema);
 
 // ----------------- HELPER FUNCTIONS -----------------
-// Check if bus is live (updated in last 2 minutes)
+// Check if bus is live (updated in last 5 minutes)
 function isBusLive(lastUpdated) {
   if (!lastUpdated) return false;
   const now = new Date();
   const lastUpdate = new Date(lastUpdated);
   const diffMinutes = (now - lastUpdate) / (1000 * 60);
-  return diffMinutes <= 2; // Live if updated within last 2 minutes
+  return diffMinutes <= 5; // Live if updated within last 5 minutes
 }
 
 // ----------------- API ROUTES -----------------
