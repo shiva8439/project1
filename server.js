@@ -107,32 +107,11 @@ async function generateTokens(user) {
 // ----------------- MODELS -----------------
 // User Model (for authentication)
 const userSchema = new mongoose.Schema({
-  email: { 
-    type: String, 
-    required: [true, 'Email is required'],
-    unique: true,
-    lowercase: true,
-    trim: true,
-    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Invalid email format']
-  },
-  password: { 
-    type: String, 
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters']
-  },
-  name: { 
-    type: String, 
-    required: [true, 'Name is required'],
-    trim: true,
-    minlength: [2, 'Name must be at least 2 characters']
-  },
-  role: { 
-    type: String, 
-    default: 'driver',
-    enum: ['driver', 'admin', 'passenger']
-  }
-}, { timestamps: true });
-
+  email: { type: String, unique: true },
+  password: String,
+  name: String,
+  role: { type: String, default: 'driver' }
+});
 const User = mongoose.model('User', userSchema);
 
 // Refresh Token Model for database storage
@@ -1270,12 +1249,12 @@ io.use(async (socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`📱 User connected: ${socket.user.name} (${socket.id})`);
+  console.log(`📱 User connected: ${socket.id}`);
 
   // Join bus room for real-time updates
   socket.on('join-bus', (busNumber) => {
     socket.join(`bus-${busNumber}`);
-    console.log(`🚌 ${socket.user.name} joined bus ${busNumber} room`);
+    console.log(`🚌 User joined bus ${busNumber} room`);
   });
 
   // Legacy support for old Flutter app
