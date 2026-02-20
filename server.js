@@ -5,6 +5,9 @@ const http = require('http');
 const { Server } = require('socket.io');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
 const saltRounds = 10;
 require('dotenv').config();
 
@@ -12,8 +15,30 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
+app.use(helmet()); // Security headers
 app.use(cors());
 app.use(express.json());
+app.use(morgan('dev')); // Better logging
+
+// Rate limiting for location updates
+const locationUpdateLimiter = rateLimit({
+  windowMs: 5 * 1000, // 5 seconds
+  max: 1, // 1 request per 5 seconds per IP
+  message: { success: false, error: "Too many location updates, please wait" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes
+  message: { success: false, error: "Too many requests" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(generalLimiter);
 
 // Socket.IO Setup
 const server = http.createServer(app);
@@ -24,8 +49,8 @@ const ioInstance = io;
 app.set('io', ioInstance);
 
 // MongoDB Connection with JWT secret check
-if (!process.env.JWT_SECRET) {
-  console.error("❌ JWT_SECRET missing in environment variables");
+if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
+  console.error("❌ JWT_SECRET or JWT_REFRESH_SECRET missing in environment variables");
   process.exit(1);
 }
 
@@ -51,6 +76,32 @@ function verifyToken(req, res, next) {
   }
 }
 
+// Generate access and refresh tokens
+async function generateTokens(user) {
+  const accessToken = jwt.sign(
+    { id: user._id, email: user.email, name: user.name, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: '15m' } // Short-lived access token
+  );
+  
+  const refreshToken = jwt.sign(
+    { id: user._id },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: '7d' } // Long-lived refresh token
+  );
+  
+  // Store refresh token in database
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  await RefreshToken.deleteMany({ user: user._id }); // Remove old tokens
+  await RefreshToken.create({
+    token: refreshToken,
+    user: user._id,
+    expiresAt
+  });
+  
+  return { accessToken, refreshToken };
+}
+
 // ----------------- MODELS -----------------
 // User Model (for authentication)
 const userSchema = new mongoose.Schema({
@@ -60,6 +111,16 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: 'driver' }
 });
 const User = mongoose.model('User', userSchema);
+
+// Refresh Token Model for database storage
+const refreshTokenSchema = new mongoose.Schema({
+  token: { type: String, required: true, unique: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  expiresAt: { type: Date, required: true },
+  isRevoked: { type: Boolean, default: false }
+});
+refreshTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+const RefreshToken = mongoose.model('RefreshToken', refreshTokenSchema);
 
 // Stop Model (unchanged, but very important)
 const stopSchema = new mongoose.Schema({
@@ -112,6 +173,7 @@ const Route = mongoose.model('Route', routeSchema);
 const busSchema = new mongoose.Schema({
   busNumber: { type: String, unique: true },
   driverName: String,
+  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // New: Direct driver reference
   route: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
   currentStopIndex: { type: Number, default: 0 },
   location: {
@@ -125,6 +187,7 @@ const busSchema = new mongoose.Schema({
 
 // Add index on busNumber for production performance
 busSchema.index({ busNumber: 1 });
+busSchema.index({ driver: 1 }); // New: Index for driver queries
 
 const Bus = mongoose.model('Bus', busSchema);
 
@@ -183,21 +246,13 @@ app.post('/api/login', async (req, res) => {
 
     console.log(`Login successful for: ${email}`);
     
-    // Generate proper JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id, 
-        email: user.email, 
-        name: user.name, 
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Generate access and refresh tokens
+    const { accessToken, refreshToken } = await generateTokens(user);
     
     res.json({
       success: true,
-      token: token,
+      accessToken: accessToken,
+      refreshToken: refreshToken,
       user: {
         _id: user._id,
         email: user.email,
@@ -276,6 +331,62 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
   }
 });
 
+// Refresh token endpoint
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, error: "Refresh token required" });
+    }
+    
+    // Check if refresh token exists and is not revoked
+    const storedToken = await RefreshToken.findOne({ 
+      token: refreshToken, 
+      isRevoked: false 
+    }).populate('user');
+    
+    if (!storedToken) {
+      return res.status(401).json({ success: false, error: "Invalid refresh token" });
+    }
+    
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    
+    if (storedToken.user._id.toString() !== decoded.id) {
+      return res.status(401).json({ success: false, error: "Token mismatch" });
+    }
+    
+    const { accessToken } = await generateTokens(storedToken.user);
+    
+    res.json({
+      success: true,
+      accessToken: accessToken
+    });
+  } catch (err) {
+    res.status(401).json({ success: false, error: "Invalid refresh token" });
+  }
+});
+
+// Revoke refresh token endpoint
+app.post('/api/auth/revoke', verifyToken, async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    await RefreshToken.updateOne(
+      { token: refreshToken },
+      { isRevoked: true }
+    );
+    
+    res.json({
+      success: true,
+      message: "Token revoked successfully"
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // DRIVER VEHICLE ENDPOINTS - JWT PROTECTED + ROLE CHECK
 app.get('/api/driver/my-vehicle', verifyToken, async (req, res) => {
   try {
@@ -287,8 +398,11 @@ app.get('/api/driver/my-vehicle', verifyToken, async (req, res) => {
       });
     }
 
-    // Find bus assigned to this driver
-    const bus = await Bus.findOne({ driverName: req.user.name }).populate('route');
+    // Find bus assigned to this driver (using proper ownership)
+    const bus = await Bus.findOne({ driver: req.user.id }).populate({
+      path: 'route',
+      populate: { path: 'stops' }
+    });
     
     if (!bus) {
       return res.status(404).json({ 
@@ -322,6 +436,24 @@ app.post('/api/driver/register-vehicle', verifyToken, async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         error: "Bus number and driver name required" 
+      });
+    }
+
+    // 🔒 Check if driver already has a bus
+    const existingBus = await Bus.findOne({ driver: req.user.id });
+    if (existingBus) {
+      return res.status(400).json({
+        success: false,
+        error: "Driver already has an assigned vehicle"
+      });
+    }
+
+    // 🔒 Check if bus number already exists
+    const busNumberExists = await Bus.findOne({ busNumber: number });
+    if (busNumberExists) {
+      return res.status(400).json({
+        success: false,
+        error: "Bus number already registered"
       });
     }
 
@@ -369,10 +501,11 @@ app.post('/api/driver/register-vehicle', verifyToken, async (req, res) => {
       });
     }
 
-    // Create bus
+    // Create bus with proper driver assignment
     const bus = await Bus.create({
       busNumber: number,
-      driverName,
+      driverName: req.user.name,
+      driver: req.user.id, // Proper ownership
       route: routeIdToUse,
       currentStopIndex: 0,
       isActive: true,
@@ -592,25 +725,38 @@ app.get('/api/routes/:routeId/buses', async (req, res) => {
   }
 });
 
-// ✅ DRIVER LOCATION UPDATE - PROTECTED + OWNERSHIP VERIFY
-app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
+// ✅ DRIVER LOCATION UPDATE - PROTECTED + OWNERSHIP VERIFY + RATE LIMITED
+app.put('/api/bus/:busNumber/location', locationUpdateLimiter, verifyToken, async (req, res) => {
   try {
     const { busNumber } = req.params;
-    const { lat, lng, bearing } = req.body;
+    const { lat, lng, bearing, speed } = req.body;
     
     console.log(`🚌 DRIVER GPS UPDATE: Bus ${busNumber}`);
     console.log(`   Location: ${lat}, ${lng}`);
     console.log(`   Bearing: ${bearing || 0}`);
+    console.log(`   Speed: ${speed || 0}`);
     
+    // Validate coordinates
     if (lat == null || lng == null) {
       return res.status(400).json({ 
         success: false, 
         error: "Latitude and longitude required" 
       });
     }
+    
+    // Coordinate validation
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid coordinates" 
+      });
+    }
 
-    // Find bus by busNumber
-    const bus = await Bus.findOne({ busNumber: busNumber });
+    // Find bus by busNumber (case-insensitive)
+    const bus = await Bus.findOne({ busNumber: { $regex: new RegExp('^' + busNumber + '$', 'i') } }).populate({
+      path: 'route',
+      populate: { path: 'stops' }
+    });
     if (!bus) {
       console.log(`❌ Bus ${busNumber} not found`);
       return res.status(404).json({ 
@@ -619,45 +765,37 @@ app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
       });
     }
 
-    // Update location in database
+    // 🔒 CRITICAL: Verify driver owns this bus
+    if (bus.driver.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to update this bus"
+      });
+    }
+
+    // Update location
     bus.location.latitude = lat;
     bus.location.longitude = lng;
     bus.location.lastUpdated = new Date();
     await bus.save();
 
-    console.log(`✅ Bus ${bus.busNumber} GPS updated in database`);
-
-    // 📡 Emit to passengers - Multiple channels for compatibility
-    const locationData = {
-      lat,
-      lng,
-      bearing: bearing || 0,
-      busId: bus._id,
-      busNumber: bus.busNumber,
+    // Emit to passengers - Room-based emission only
+    io.to(`bus-${busNumber}`).emit('location-update', {
+      busNumber: busNumber,
+      latitude: lat,
+      longitude: lng,
+      speed: speed || 0,
+      heading: bearing || 0,
       timestamp: new Date()
-    };
-
-    // Channel 1: General location update
-    io.emit('locationUpdate', locationData);
-    
-    // Channel 2: Bus-specific room
-    io.emit(`bus-${bus.busNumber}`, {
-      type: 'location_update',
-      busNumber: bus.busNumber,
-      location: {
-        latitude: lat,
-        longitude: lng,
-        lastUpdated: new Date()
-      }
     });
 
-    console.log(`📡 GPS data sent to passengers`);
-    console.log(`   Channels: locationUpdate, bus-${bus.busNumber}`);
+    console.log(`✅ Bus ${busNumber} GPS updated with stop detection`);
+    console.log(`   Emitted to room: bus-${busNumber}`);
 
     res.json({
       success: true,
       message: "GPS location updated successfully",
-      busNumber: bus.busNumber,
+      busNumber: busNumber,
       location: {
         latitude: lat,
         longitude: lng,
@@ -666,14 +804,22 @@ app.put('/api/bus/:busNumber/location', verifyToken, async (req, res) => {
     });
     
   } catch (err) {
-    console.error(`❌ GPS Update Error: ${err.message}`);
+    console.error(` GPS Update Error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ DRIVER: Update bus status (End Trip) - NEW ENDPOINT
-app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
+// ✅ DRIVER: Update bus status (End Trip) - PROTECTED + OWNERSHIP VERIFY
+app.put('/api/driver/bus/:busNumber/status', verifyToken, async (req, res) => {
   try {
+    // 🔒 Role check - only drivers can access
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ 
+        success: false, 
+        error: "Driver access only" 
+      });
+    }
+
     const { isActive, tripEnded } = req.body;
     const { busNumber } = req.params;
     
@@ -685,6 +831,14 @@ app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
       return res.status(404).json({ 
         success: false, 
         error: "Bus not found" 
+      });
+    }
+    
+    // 🔒 CRITICAL: Verify driver owns this bus
+    if (bus.driver.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to update this bus"
       });
     }
     
@@ -940,9 +1094,17 @@ app.get('/bus/track/:busNumber', async (req, res) => {
   }
 });
 
-// ✅ DRIVER: Update current stop
-app.put('/bus/stop/:busNumber', async (req, res) => {
+// ✅ DRIVER: Update current stop - PROTECTED + OWNERSHIP VERIFY
+app.put('/api/bus/stop/:busNumber', verifyToken, async (req, res) => {
   try {
+    // 🔒 Role check - only drivers can access
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ 
+        success: false, 
+        error: "Driver access only" 
+      });
+    }
+
     const { stopIndex } = req.body;
     
     if (stopIndex == null || stopIndex < 0) {
@@ -953,12 +1115,23 @@ app.put('/bus/stop/:busNumber', async (req, res) => {
     }
 
     const bus = await Bus.findOne({ busNumber: req.params.busNumber })
-      .populate('route');
+      .populate({
+        path: 'route',
+        populate: { path: 'stops' }
+      });
     
     if (!bus) {
       return res.status(404).json({ 
         success: false,
         error: "Bus not found" 
+      });
+    }
+
+    // 🔒 CRITICAL: Verify driver owns this bus
+    if (bus.driver.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to update this bus"
       });
     }
 
@@ -989,14 +1162,44 @@ app.put('/bus/stop/:busNumber', async (req, res) => {
   }
 });
 
+// Version endpoint
+app.get('/api/version', (req, res) => {
+  res.json({ 
+    version: "1.1.0", 
+    environment: process.env.NODE_ENV || "development" 
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ success: false, error: "Internal server error" });
+});
+
 // ----------------- SOCKET.IO FOR REAL-TIME UPDATES -----------------
+// Socket.IO JWT Authentication middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error('Authentication error'));
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log('📱 User connected:', socket.id);
+  console.log(`📱 User connected: ${socket.user.name} (${socket.id})`);
 
   // Join bus room for real-time updates
   socket.on('join-bus', (busNumber) => {
     socket.join(`bus-${busNumber}`);
-    console.log(`🚌 User joined bus ${busNumber} room`);
+    console.log(`🚌 ${socket.user.name} joined bus ${busNumber} room`);
   });
 
   // Legacy support for old Flutter app
