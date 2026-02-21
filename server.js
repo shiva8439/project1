@@ -368,8 +368,7 @@ app.get('/api/routes', async (req, res) => {
 app.get('/api/routes/:routeId/buses', async (req, res) => {
   try {
     const buses = await Bus.find({
-      route: req.params.routeId,
-      isActive: true
+      route: req.params.routeId
     }).populate('route');
 
     res.json({
@@ -421,6 +420,14 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
       });
     }
 
+    // 🔥 IMPORTANT: Check if bus is active before updating location
+    if (!bus.isActive) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Bus is offline. Start trip first." 
+      });
+    }
+
     // Update location
     bus.location.latitude = lat;
     bus.location.longitude = lng;
@@ -458,75 +465,6 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
     });
   } catch (err) {
     console.error(`❌ LOCATION UPDATE ERROR: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ✅ DRIVER LOCATION UPDATE - Missing endpoint for Flutter driver app
-app.put('/bus/location/:busNumber', async (req, res) => {
-  try {
-    const { latitude, longitude, driverName } = req.body;
-    
-    console.log(`🚌 DRIVER GPS UPDATE: Bus ${req.params.busNumber}`);
-    console.log(`   Location: ${latitude}, ${longitude}`);
-    
-    if (latitude == null || longitude == null) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Latitude and longitude required" 
-      });
-    }
-
-    const bus = await Bus.findOne({ busNumber: req.params.busNumber });
-    if (!bus) {
-      console.log(`❌ Bus ${req.params.busNumber} not found`);
-      return res.status(404).json({ 
-        success: false, 
-        error: "Bus not found" 
-      });
-    }
-
-    // Update bus location
-    bus.location.latitude = latitude;
-    bus.location.longitude = longitude;
-    bus.location.lastUpdated = new Date();
-    if (driverName) bus.driverName = driverName;
-    
-    await bus.save();
-
-    console.log(`✅ Bus ${bus.busNumber} GPS updated in database`);
-
-    // Emit real-time update to all passengers
-    io.emit(`bus-${req.params.busNumber}`, {
-      type: 'location_update',
-      busNumber: bus.busNumber,
-      location: {
-        latitude,
-        longitude,
-        lastUpdated: new Date()
-      }
-    });
-
-    // Legacy support for old Flutter app
-    io.emit(`locationUpdate`, {
-      lat: latitude,
-      lng: longitude,
-      busId: bus._id
-    });
-
-    console.log(`📡 GPS data sent to passengers`);
-
-    res.json({
-      success: true,
-      message: "Location updated successfully",
-      location: {
-        latitude,
-        longitude,
-        lastUpdated: new Date()
-      }
-    });
-  } catch (err) {
-    console.error(`❌ GPS Update Error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
