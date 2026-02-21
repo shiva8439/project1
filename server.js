@@ -833,8 +833,17 @@ app.put('/api/bus/:busNumber/location', locationUpdateLimiter, verifyToken, asyn
     bus.location.lastUpdated = new Date();
     await bus.save();
 
-    // Emit to passengers - Room-based emission only
-    io.to(`bus-${busNumber}`).emit('location-update', {
+    // Emit to passengers - Both global and room-based
+    io.emit('locationUpdate', {
+      busNumber: busNumber,
+      latitude: lat,
+      longitude: lng,
+      speed: speed || 0,
+      heading: bearing || 0,
+      timestamp: new Date()
+    });
+    
+    io.to(`bus-${busNumber}`).emit('locationUpdate', {
       busNumber: busNumber,
       latitude: lat,
       longitude: lng,
@@ -937,8 +946,14 @@ app.put('/api/driver/bus/:busNumber/status', verifyToken, async (req, res) => {
 // ✅ SOCKET.IO - Handle driver location updates
 io.on('driver-location-update', (data) => {
   console.log('📍 Driver GPS via Socket:', data);  
-  // Broadcast to all passengers
-  io.emit('locationUpdate', data);
+  // Broadcast to all passengers - consistent format
+  io.emit('locationUpdate', {
+    busNumber: data.busNumber,
+    latitude: data.lat,
+    longitude: data.lng,
+    bearing: data.bearing || 0,
+    timestamp: new Date()
+  });
   io.emit(`bus-${data.busNumber}`, {
     type: 'location_update',
     busNumber: data.busNumber,
@@ -962,26 +977,25 @@ app.get('/vehicles/search', async (req, res) => {
       // If no number provided, return all active buses
       const buses = await Bus.find({ isActive: true }).populate('route');
       
-      const vehicles = buses.map(bus => {
-        const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
-        
-        return {
-          _id: bus._id,
-          number: bus.busNumber,
-          currentLocation: {
-            lat: bus.location.latitude,
-            lng: bus.location.longitude
-          },
-          hasValidLocation: hasValidLocation,
-          route: bus.route,
-          driverName: bus.driverName || "Driver",
-          isActive: bus.isActive,
-          status: bus.status,
-          currentPassengers: bus.currentPassengers || 0,
-          capacity: bus.capacity || 50,
-          lastUpdated: bus.location.lastUpdated
-        };
-      });
+      const vehicles = buses.map(bus => ({
+        busNumber: bus.busNumber,
+        route: bus.route,
+        location: bus.location,
+        isActive: bus.isActive,
+        hasValidLocation: !!bus.location?.latitude,
+        isLive: !!bus.location?.latitude,
+        _id: bus._id,
+        number: bus.busNumber,
+        currentLocation: {
+          lat: bus.location.latitude,
+          lng: bus.location.longitude
+        },
+        driverName: bus.driverName || "Driver",
+        status: bus.status,
+        currentPassengers: bus.currentPassengers || 0,
+        capacity: bus.capacity || 50,
+        lastUpdated: bus.location.lastUpdated
+      }));
 
       console.log(`📱 RETURNING ALL ${vehicles.length} VEHICLES`);
       return res.json({
@@ -1003,26 +1017,25 @@ app.get('/vehicles/search', async (req, res) => {
     }
 
     // Map all found buses to vehicles format
-    const vehicles = buses.map(bus => {
-      const hasValidLocation = bus.location.latitude !== 0 && bus.location.longitude !== 0;
-      
-      return {
+    const vehicles = buses.map(bus => ({
+        busNumber: bus.busNumber,
+        route: bus.route,
+        location: bus.location,
+        isActive: bus.isActive,
+        hasValidLocation: !!bus.location?.latitude,
+        isLive: !!bus.location?.latitude,
         _id: bus._id,
         number: bus.busNumber,
         currentLocation: {
           lat: bus.location.latitude,
           lng: bus.location.longitude
         },
-        hasValidLocation: hasValidLocation,
-        route: bus.route,
         driverName: bus.driverName || "Driver",
-        isActive: bus.isActive,
         status: bus.status,
         currentPassengers: bus.currentPassengers || 0,
         capacity: bus.capacity || 50,
         lastUpdated: bus.location.lastUpdated
-      };
-    });
+      }));
 
     console.log(`📱 RETURNING ${vehicles.length} VEHICLES`);
 
@@ -1085,21 +1098,18 @@ app.get('/buses', async (req, res) => {
   try {
     const buses = await Bus.find({ isActive: true }).populate('route');
     
+    const formatted = buses.map(bus => ({
+      busNumber: bus.busNumber,
+      route: bus.route,
+      location: bus.location,
+      isActive: bus.isActive,
+      hasValidLocation: !!bus.location?.latitude,
+      isLive: !!bus.location?.latitude
+    }));
+    
     res.json({
       success: true,
-      buses: buses.map(bus => ({
-        _id: bus._id,
-        busNumber: bus.busNumber,
-        driverName: bus.driverName || "Driver",
-        routeName: bus.route?.routeName || "No Route",
-        currentStop: bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route",
-        isLive: isBusLive(bus.location.lastUpdated), // Check if bus is live
-        lastSeen: bus.location.lastUpdated,
-        location: bus.location,
-        status: bus.status,
-        currentPassengers: bus.currentPassengers || 0,
-        capacity: bus.capacity || 50
-      }))
+      buses: formatted
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1250,8 +1260,15 @@ io.on('connection', (socket) => {
   socket.on('driver-location-update', (data) => {
     console.log('📍 Driver location update received:', data);
     
-    // Broadcast to all passengers
-    io.emit('locationUpdate', data);
+    // Broadcast to all passengers - consistent event name
+    io.emit('locationUpdate', {
+      busNumber: data.busNumber,
+      latitude: data.lat,
+      longitude: data.lng,
+      bearing: data.bearing || 0,
+      timestamp: new Date()
+    });
+    
     io.emit(`bus-${data.busNumber}`, {
       type: 'location_update',
       busNumber: data.busNumber,
