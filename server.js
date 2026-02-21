@@ -459,85 +459,75 @@ app.put('/vehicles/:vehicleId/location', async (req, res) => {
 });
 
 // ✅ DRIVER LOCATION UPDATE - Missing endpoint for Flutter driver app
-app.put('/bus/:busNumber/location', async (req, res) => {
+app.put('/bus/location/:busNumber', async (req, res) => {
   try {
-    const { busNumber } = req.params;
-    const { lat, lng, bearing } = req.body;
+    const { latitude, longitude, driverName } = req.body;
     
-    console.log(`🚌 DRIVER GPS UPDATE: Bus ${busNumber}`);
-    console.log(`   Location: ${lat}, ${lng}`);
-    console.log(`   Bearing: ${bearing || 0}`);
+    console.log(`🚌 DRIVER GPS UPDATE: Bus ${req.params.busNumber}`);
+    console.log(`   Location: ${latitude}, ${longitude}`);
     
-    if (lat == null || lng == null) {
+    if (latitude == null || longitude == null) {
       return res.status(400).json({ 
         success: false, 
         error: "Latitude and longitude required" 
       });
     }
 
-    // Find bus by busNumber
-    const bus = await Bus.findOne({ busNumber: busNumber });
+    const bus = await Bus.findOne({ busNumber: req.params.busNumber });
     if (!bus) {
-      console.log(`❌ Bus ${busNumber} not found`);
+      console.log(`❌ Bus ${req.params.busNumber} not found`);
       return res.status(404).json({ 
         success: false, 
         error: "Bus not found" 
       });
     }
 
-    // Update location in database
-    bus.location.latitude = lat;
-    bus.location.longitude = lng;
+    // Update bus location
+    bus.location.latitude = latitude;
+    bus.location.longitude = longitude;
     bus.location.lastUpdated = new Date();
+    if (driverName) bus.driverName = driverName;
+    
     await bus.save();
 
     console.log(`✅ Bus ${bus.busNumber} GPS updated in database`);
 
-    // 📡 Emit to passengers - Multiple channels for compatibility
-    const locationData = {
-      lat,
-      lng,
-      bearing: bearing || 0,
-      busId: bus._id,
-      busNumber: bus.busNumber,
-      timestamp: new Date()
-    };
-
-    // Channel 1: General location update
-    io.emit('locationUpdate', locationData);
-    
-    // Channel 2: Bus-specific room
-    io.emit(`bus-${bus.busNumber}`, {
+    // Emit real-time update to all passengers
+    io.emit(`bus-${req.params.busNumber}`, {
       type: 'location_update',
       busNumber: bus.busNumber,
       location: {
-        latitude: lat,
-        longitude: lng,
+        latitude,
+        longitude,
         lastUpdated: new Date()
       }
+    });
+
+    // Legacy support for old Flutter app
+    io.emit(`locationUpdate`, {
+      lat: latitude,
+      lng: longitude,
+      busId: bus._id
     });
 
     console.log(`📡 GPS data sent to passengers`);
-    console.log(`   Channels: locationUpdate, bus-${bus.busNumber}`);
 
     res.json({
       success: true,
-      message: "GPS location updated successfully",
-      busNumber: bus.busNumber,
+      message: "Location updated successfully",
       location: {
-        latitude: lat,
-        longitude: lng,
+        latitude,
+        longitude,
         lastUpdated: new Date()
       }
     });
-    
   } catch (err) {
     console.error(`❌ GPS Update Error: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ✅ DRIVER: Update bus status (End Trip) - NEW ENDPOINT
+// ✅ DRIVER: Update bus status (End Trip) - SIMPLE WORKING VERSION
 app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
   try {
     const { isActive, tripEnded } = req.body;
@@ -558,8 +548,6 @@ app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
     bus.isActive = isActive;
     if (tripEnded) {
       bus.lastTripEnded = new Date();
-      // IMPORTANT: Reset location timestamp to show offline immediately
-      bus.location.lastUpdated = new Date(0); // Unix epoch = offline
     }
     await bus.save();
 
@@ -570,13 +558,6 @@ app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
       isActive: bus.isActive,
       status: bus.isActive ? "🟢 LIVE" : "🔴 OFFLINE",
       lastUpdated: new Date()
-    });
-
-    // General status update
-    io.emit('busStatusUpdate', {
-      busNumber: bus.busNumber,
-      isActive: bus.isActive,
-      status: bus.isActive ? "LIVE" : "OFFLINE"
     });
 
     console.log(`✅ Bus ${bus.busNumber} status updated to ${bus.isActive ? 'ACTIVE' : 'INACTIVE'}`);
