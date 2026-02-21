@@ -779,6 +779,131 @@ app.get('/api/routes/:routeId/buses', async (req, res) => {
   }
 });
 
+// ✅ SIMPLE BUS CREATION (No Auth Required)
+app.post('/bus/add', async (req, res) => {
+  try {
+    const { busNumber, driverName, from, to } = req.body;
+    
+    if (!busNumber || !driverName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Bus number and driver name required" 
+      });
+    }
+
+    // Create route first
+    const routeStops = [from || "Start", to || "End"];
+    const newRoute = await Route.create({
+      routeName: `${from || "Start"} - ${to || "End"}`,
+      routeNumber: `ROUTE-${Date.now()}`,
+      stops: routeStops
+    });
+
+    // Create bus
+    const bus = await Bus.create({
+      busNumber: busNumber.toUpperCase(),
+      driverName,
+      route: newRoute._id,
+      currentStopIndex: 0,
+      isActive: true,
+      location: {
+        latitude: 28.7041, // Default Delhi location
+        longitude: 77.1026,
+        lastUpdated: new Date()
+      }
+    });
+
+    console.log(`✅ Bus created: ${bus.busNumber} by ${driverName}`);
+
+    res.status(201).json({
+      success: true,
+      message: "Bus added successfully",
+      bus: {
+        _id: bus._id,
+        busNumber: bus.busNumber,
+        driverName: bus.driverName,
+        route: newRoute,
+        isActive: bus.isActive
+      }
+    });
+  } catch (err) {
+    console.error("Bus creation error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ✅ SIMPLE LOCATION UPDATE (No Auth Required)
+app.put('/bus/location/:busNumber', async (req, res) => {
+  try {
+    const { busNumber } = req.params;
+    const { latitude, longitude, bearing, speed } = req.body;
+    
+    console.log(`🚌 GPS UPDATE: Bus ${busNumber}`);
+    console.log(`   Location: ${latitude}, ${longitude}`);
+    console.log(`   Bearing: ${bearing || 0}`);
+    console.log(`   Speed: ${speed || 0}`);
+    
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Latitude and longitude required" 
+      });
+    }
+
+    // Find bus by busNumber
+    const bus = await Bus.findOne({ busNumber: busNumber.toUpperCase() });
+    if (!bus) {
+      console.log(`❌ Bus ${busNumber} not found`);
+      return res.status(404).json({ 
+        success: false, 
+        error: "Bus not found" 
+      });
+    }
+
+    // Update location
+    bus.location.latitude = latitude;
+    bus.location.longitude = longitude;
+    bus.location.lastUpdated = new Date();
+    await bus.save();
+
+    console.log(`✅ Bus ${bus.busNumber} GPS updated`);
+
+    // Emit to passengers - Both global and room-based
+    io.emit('locationUpdate', {
+      busNumber: bus.busNumber,
+      latitude: latitude,
+      longitude: longitude,
+      bearing: bearing || 0,
+      timestamp: new Date()
+    });
+    
+    io.to(`bus-${bus.busNumber}`).emit('locationUpdate', {
+      busNumber: bus.busNumber,
+      latitude: latitude,
+      longitude: longitude,
+      bearing: bearing || 0,
+      timestamp: new Date()
+    });
+
+    console.log(`📡 GPS data sent to passengers`);
+
+    res.json({
+      success: true,
+      message: "GPS location updated successfully",
+      busNumber: bus.busNumber,
+      location: {
+        latitude: latitude,
+        longitude: longitude,
+        lastUpdated: new Date()
+      }
+    });
+    
+  } catch (err) {
+    console.error(`❌ GPS Update Error: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ✅ DRIVER LOCATION UPDATE - PROTECTED + OWNERSHIP VERIFY + RATE LIMITED
 app.put('/api/bus/:busNumber/location', locationUpdateLimiter, verifyToken, async (req, res) => {
   try {
