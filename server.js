@@ -69,12 +69,16 @@ const Stop = mongoose.model('Stop', stopSchema);
 
 // ----------------- HELPER FUNCTIONS -----------------
 // Check if bus is live (updated in last 2 minutes)
-function isBusLive(lastUpdated) {
-  if (!lastUpdated) return false;
+function isBusLive(bus) {
+  if (!bus.isActive) return false;
+  
+  if (!bus.location?.lastUpdated) return false;
+  
   const now = new Date();
-  const lastUpdate = new Date(lastUpdated);
+  const lastUpdate = new Date(bus.location.lastUpdated);
   const diffMinutes = (now - lastUpdate) / (1000 * 60);
-  return diffMinutes <= 2; // Live if updated within last 2 minutes
+  
+  return diffMinutes <= 2;
 }
 
 // ----------------- API ROUTES -----------------
@@ -376,7 +380,7 @@ app.get('/api/routes/:routeId/buses', async (req, res) => {
         busNumber: bus.busNumber,
         driverName: bus.driverName,
         currentStop: bus.route?.stops[bus.currentStopIndex],
-        isLive: isBusLive(bus.location.lastUpdated),
+        isLive: isBusLive(bus),
         lastUpdated: bus.location.lastUpdated
       }))
     });
@@ -548,10 +552,14 @@ app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
     bus.isActive = isActive;
     if (tripEnded) {
       bus.lastTripEnded = new Date();
-      // IMPORTANT: Reset location to show offline immediately
-      bus.location.latitude = 0;
-      bus.location.longitude = 0;
-      bus.location.lastUpdated = new Date();
+      bus.isActive = false;
+
+      // 🔥 Clear location completely
+      bus.location = {
+        latitude: 0,
+        longitude: 0,
+        lastUpdated: null
+      };
     }
     await bus.save();
 
@@ -725,10 +733,10 @@ app.get('/debug/buses', async (req, res) => {
   }
 });
 
-// ✅ GET ALL BUSES (For selection) - ALL LIVE BUSES
+// ✅ GET ALL BUSES (For selection) - ALL BUSES WITH LIVE STATUS
 app.get('/buses', async (req, res) => {
   try {
-    const buses = await Bus.find({ isActive: true }).populate('route');
+    const buses = await Bus.find().populate('route');
     
     res.json({
       success: true,
@@ -738,7 +746,7 @@ app.get('/buses', async (req, res) => {
         driverName: bus.driverName || "Driver",
         routeName: bus.route?.routeName || "No Route",
         currentStop: bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route",
-        isLive: isBusLive(bus.location.lastUpdated), // Check if bus is live
+        isLive: isBusLive(bus), // Check if bus is live
         lastSeen: bus.location.lastUpdated,
         location: bus.location,
         status: bus.status,
@@ -766,7 +774,7 @@ app.get('/bus/track/:busNumber', async (req, res) => {
 
     const currentStop = bus.route ? bus.route.stops[bus.currentStopIndex] : "No Route";
     const nextStop = bus.route ? bus.route.stops[bus.currentStopIndex + 1] : "No Route";
-    const isLive = bus.location.lastUpdated > new Date(Date.now() - 2 * 60 * 1000); // Last 2 minutes
+    const isLive = isBusLive(bus); // Use new function
 
     res.json({
       success: true,
