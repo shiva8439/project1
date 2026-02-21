@@ -558,6 +558,8 @@ app.put('/api/driver/bus/:busNumber/status', async (req, res) => {
     bus.isActive = isActive;
     if (tripEnded) {
       bus.lastTripEnded = new Date();
+      // IMPORTANT: Reset location timestamp to show offline immediately
+      bus.location.lastUpdated = new Date(0); // Unix epoch = offline
     }
     await bus.save();
 
